@@ -47,41 +47,41 @@ Für eine eigene (Sub-)Domain – z. B. `vermessung.bahl-netz.de`:
 
 ## Bedienung (so erklärst du es dem Kunden)
 
-> 1. Link öffnen.
-> 2. GeoTIFF-Datei ins Fenster ziehen (oder „Datei auswählen").
-> 3. Werkzeug wählen: **Fläche** (Dachfläche in m²), **Strecke** oder **Punkt**.
-> 4. Auf das Dach klicken. Fläche schließen: auf den ersten Punkt klicken.
->    Strecke beenden: Doppelklick.
-> 5. Ergebnisse erscheinen rechts inkl. Summe.
+Die Oberfläche ist in drei nummerierte Schritte gegliedert und enthält oben rechts einen
+Knopf **„Anleitung"** mit einer bebilderten Kurzhilfe.
+
+> 1. **Luftbild laden** – die `.tif`-Datei ins Fenster ziehen oder „Datei auswählen".
+> 2. **Werkzeug wählen** – *Fläche messen*, *Länge messen* oder *Punkt setzen*.
+> 3. **Auf das Dach klicken** – Eckpunkte setzen. Fläche schließen: wieder auf den ersten Punkt
+>    klicken. Länge beenden: Doppelklick. Die Werte erscheinen sofort rechts inkl. Gesamtsumme.
+> 4. **Speichern** – *Als PDF* oder *Als Bild* für den Versand; *Arbeit sichern* zum
+>    Späterweitermachen.
+
+Ein laufender Hinweistext unter den Werkzeugen sagt jederzeit, was als Nächstes zu klicken ist.
 
 ### Speichern, Laden, Export
 
-- **Projekt speichern / laden:** Über „Projekt → Speichern" werden alle Einzeichnungen als
-  `.json` gesichert; „Laden" stellt sie wieder her. Das (große) Orthofoto wird **nicht**
-  mitgespeichert – beim erneuten Öffnen einfach dieselbe GeoTIFF-Datei laden, dann liegen die
-  Messungen wieder darüber.
-- **PNG / PDF:** Exportiert die aktuelle Kartenansicht inklusive aller Einzeichnungen und
-  Beschriftungen, mit Titel- und Summenkopf. Für einen sauberen Export wird die
-  OpenStreetMap-Hintergrundkarte dabei automatisch ausgeblendet (cross-origin).
-- **GeoJSON / CSV:** Reine Messdaten für die Weiterverarbeitung in GIS bzw. Tabellen.
+- **Als PDF / Als Bild:** exportiert die aktuelle Kartenansicht inklusive aller Einzeichnungen
+  und Beschriftungen, mit Titel- und Summenkopf (das PDF zusätzlich mit einer Messliste). Für
+  einen sauberen Export wird eine ggf. eingeblendete Straßenkarte automatisch ausgeblendet.
+- **Arbeit sichern / Sicherung öffnen:** speichert alle Einzeichnungen als `.json` und stellt
+  sie wieder her. Das (große) Luftbild wird **nicht** mitgespeichert – beim erneuten Öffnen
+  einfach dieselbe `.tif` laden, dann liegen die Messungen wieder darüber.
+- **Für Fachleute (GIS-Daten):** im aufklappbaren Bereich liegen **GeoJSON** und **CSV** für die
+  Weiterverarbeitung.
 - **Hell-/Dunkelmodus:** Umschalter oben rechts; Startwert nach System-Einstellung.
 
-### Hintergrundkarten
+### Hintergrundkarte
 
-Die Hintergrundkarte ist standardmäßig **aus** (gemessen wird auf dem Orthofoto). Bei Bedarf
-einblendbar, mit Auswahl der Quelle:
+Standardmäßig wird **nur das Luftbild** angezeigt – darauf wird gemessen. Optional lässt sich
+unten links eine einfache **Straßenkarte** (CARTO, auf OpenStreetMap-Basis) zur groben
+Orientierung einblenden; sie ist kostenlos nutzbar. Über denselben Regler kann das Luftbild
+durchscheinend gemacht werden.
 
-- **Straßenkarte (CARTO):** auf OpenStreetMap-Daten basierend, kostenlos nutzbar.
-- **Luftbild Hessen (DOP20):** amtliche Digitale Orthophotos der Hessischen Verwaltung für
-  Bodenmanagement und Geoinformation, 20 cm Auflösung. Abruf kostenfrei (§ 24 HVGG), Lizenz
-  *Datenlizenz Deutschland – Zero – 2.0* (dl-zero-de/2.0) – **auch kommerziell uneingeschränkt
-  nutzbar**. Ideal als Kontext für PV-Planung in Hessen.
-
-Hinweis zur kommerziellen Nutzung: Esri „World Imagery" und Google-Kacheln sind für den
-gewerblichen Direktabruf **nicht** ohne Lizenz freigegeben und daher bewusst nicht enthalten.
-Liegen deine Projekte außerhalb Hessens, bietet praktisch jedes Bundesland einen eigenen,
-kostenfreien DOP-WMS an (z. B. Bayern, NRW, BW) – diese lassen sich analog als weitere Quelle
-ergänzen.
+Hochauflösende Luftbild-/Satellitendienste sind bewusst **nicht** eingebaut: bundesweite
+amtliche Dienste (BKG-DOP20) sind für gewerbliche Drittnutzung kostenpflichtig, und Esri/Google
+sind für den kommerziellen Direktabruf nicht frei. Das eigene Orthofoto ist ohnehin die genaue
+Messgrundlage.
 
 ## Unterstützte Dateien
 

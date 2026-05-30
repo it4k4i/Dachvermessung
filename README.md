@@ -8,6 +8,28 @@ Gedacht für Drohnen-Dachvermessungen: Du exportierst das Orthofoto, der Kunde z
 diese Seite und plant seine PV-Anlage (Modulanordnung, verfügbare Dachfläche, Hindernisse)
 eigenständig.
 
+## Zwei Varianten: mit oder ohne CDN
+
+Das Tool funktioniert identisch – der Unterschied ist nur, **woher der Browser die
+Programmbibliotheken (Leaflet, georaster usw.) lädt**:
+
+| | Mit CDN | Ohne CDN (empfohlen) |
+|---|---|---|
+| Datei | `cdn_index.html` | `index.html` + Ordner `lib/` |
+| Bibliotheken | werden von unpkg.com geladen | liegen lokal in `lib/` |
+| Vorbereitung | keine – sofort einsatzbereit | einmalig `bash vendor.sh` ausführen |
+| Externe Aufrufe | unpkg + (optional) Straßenkarte | nur (optional) Straßenkarte |
+| Wann sinnvoll | schnelles Ausprobieren, Demo | produktive Kundenseite, datensparsam, ausfallsicher |
+
+- **Mit CDN** ist am schnellsten startklar, hängt aber bei jedem Aufruf an unpkg.com (fällt das
+  CDN aus, lädt die Seite nicht). Zum Veröffentlichen `cdn_index.html` einfach in `index.html`
+  umbenennen.
+- **Ohne CDN** ist die empfohlene Variante für den Dauerbetrieb: Nach `bash vendor.sh` lädt der
+  Browser ausschließlich Dateien von deiner eigenen Domain – kein Drittanbieter-CDN, robuster
+  und datensparsamer. Details unten unter „Ohne CDN betreiben".
+
+In beiden Fällen wird die **GeoTIFF-Datei nie hochgeladen** – sie bleibt im Browser.
+
 ## Datenschutz
 
 - Das GeoTIFF wird **lokal im Browser** (Arbeitsspeicher) gelesen und gerendert
@@ -24,8 +46,10 @@ eigenständig.
 
 ## Auf GitHub Pages veröffentlichen
 
-1. Neues Repository anlegen und diese Dateien hineinlegen (`index.html` muss im Wurzel-
-   verzeichnis oder im Ordner `/docs` liegen).
+1. Neues Repository anlegen und die Dateien hineinlegen. Die auszuliefernde Datei muss
+   `index.html` heißen und im Wurzelverzeichnis (oder im Ordner `/docs`) liegen:
+   - **Ohne CDN (empfohlen):** die lokalisierte `index.html` samt Ordner `lib/` (nach `vendor.sh`).
+   - **Mit CDN:** `cdn_index.html` nach `index.html` umbenennen/kopieren.
 2. **Settings → Pages**: Source = *Deploy from a branch*, Branch = `main`, Ordner = `/ (root)`
    (oder `/docs`, falls du es dort ablegst).
 3. Nach kurzer Zeit ist die Seite erreichbar unter
@@ -127,18 +151,20 @@ gdal_translate odm_orthophoto.tif ortho_cog.tif -of COG -co COMPRESS=DEFLATE
 
 Funktioniert sowohl mit GitHub Pages als auch mit GitLab Pages.
 
-Standardmäßig lädt `index.html` Leaflet, Leaflet.draw, georaster, georaster-layer-for-leaflet,
-html2canvas und jsPDF von einem CDN. Damit die Seite (bis auf die optionale Straßenkarte)
-**keine externen Abhängigkeiten** hat, einmalig lokal ausführen:
+Ausgangspunkt ist die CDN-Variante `cdn_index.html` (lädt Leaflet, Leaflet.draw, georaster,
+georaster-layer-for-leaflet, html2canvas und jsPDF von unpkg.com). Um daraus die lokale,
+CDN-freie Variante zu erzeugen, die Datei nach `index.html` kopieren und das Skript ausführen:
 
 ```bash
-bash vendor.sh          # Bibliotheken nach lib/ holen und Pfade lokalisieren
-bash vendor-fonts.sh    # (optional) Schriften lokal einbinden – siehe unten
+cp cdn_index.html index.html   # nur falls noch keine lokale index.html existiert
+bash vendor.sh                 # Bibliotheken nach lib/ holen und Pfade lokalisieren
+bash vendor-fonts.sh           # (optional) Schriften lokal einbinden – siehe unten
 ```
 
 `vendor.sh` lädt alle Bibliotheken nach `lib/` herunter, holt die nötigen Marker-/Icon-Bilder
 und stellt die Pfade in `index.html` auf lokal um (ein Backup wird als `index.html.bak`
-abgelegt). Danach `lib/` und `index.html` mit committen.
+abgelegt). Danach `index.html` und den Ordner `lib/` committen. Ergebnis: Der Browser lädt
+nur noch Dateien von deiner eigenen Domain (bis auf die optionale Straßenkarte).
 
 ### Schriften lokal einbinden (empfohlen, DSGVO)
 

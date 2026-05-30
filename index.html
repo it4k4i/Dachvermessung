@@ -14,8 +14,8 @@
 </script>
 
 <!-- Leaflet -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+<link rel="stylesheet" href="lib/leaflet.css" />
+<link rel="stylesheet" href="lib/leaflet.draw.css" />
 
 <!-- Schriften -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -133,15 +133,21 @@
   .empty{color:var(--muted);font-size:13px;line-height:1.6;text-align:center;padding:26px 8px}
   .empty svg{width:34px;height:34px;opacity:.4;margin-bottom:10px}
 
-  .item{display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:10px;
+  .item{display:flex;align-items:center;gap:9px;padding:10px 11px;border-radius:10px;
     background:var(--panel-2);border:1px solid var(--line);margin-bottom:8px}
+  .item.hidden-item{opacity:.5}
+  .item .vis{width:16px;height:16px;flex:0 0 auto;accent-color:var(--accent);cursor:pointer;margin:0}
   .swatch{width:9px;height:34px;border-radius:4px;flex:0 0 auto}
-  .item .meta{min-width:0;flex:1}
-  .item .lbl{font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+  .item .meta{min-width:0;flex:1;cursor:pointer}
+  .item .lbl{font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .item .val{font-weight:600;font-size:14px;font-variant-numeric:tabular-nums}
-  .item .del{background:none;border:none;color:var(--muted);width:28px;height:28px;border-radius:7px;
+  .item.hidden-item .val{text-decoration:line-through}
+  .item .rowbtn{background:none;border:none;color:var(--muted);width:28px;height:28px;border-radius:7px;
     display:grid;place-items:center;flex:0 0 auto}
-  .item .del:hover{background:rgba(255,90,95,.15);color:var(--danger)}
+  .item .rowbtn svg{width:15px;height:15px}
+  .item .rowbtn.edit:hover{background:var(--accent-soft);color:var(--accent)}
+  .item .rowbtn.del:hover{background:rgba(255,90,95,.15);color:var(--danger)}
 
   .total{margin-top:6px;padding:13px 14px;border-radius:10px;
     background:linear-gradient(135deg,var(--accent-soft),rgba(255,122,24,.04));
@@ -490,6 +496,7 @@
           <li><b>Länge:</b> Mit einem <b>Doppelklick</b> beenden.</li>
         </ul>
       </li>
+      <li><b>Benennen &amp; aus-/einblenden.</b> In der Ergebnisliste können Sie jede Messung über das <b>Stift-Symbol</b> umbenennen (z. B. „Dach Süd") und über das <b>Häkchen</b> vorübergehend ausblenden – die Gesamtfläche zählt dann nur die sichtbaren Messungen.</li>
       <li><b>Korrigieren.</b> „Letztes rückgängig" entfernt die letzte Messung, „Alles löschen" leert die Karte.</li>
       <li><b>Speichern.</b> <b>Als PDF</b> oder <b>Als Bild</b> für den Versand. Mit <b>Arbeit sichern</b> können Sie später weitermachen (dann dieselbe .tif erneut laden).</li>
     </ol>
@@ -499,12 +506,12 @@
 </div>
 
 <!-- Bibliotheken -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
-<script src="https://unpkg.com/georaster"></script>
-<script src="https://unpkg.com/georaster-layer-for-leaflet/dist/georaster-layer-for-leaflet.min.js"></script>
-<script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-<script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="lib/leaflet.js"></script>
+<script src="lib/leaflet.draw.js"></script>
+<script src="lib/georaster.js"></script>
+<script src="lib/georaster-layer.js"></script>
+<script src="lib/html2canvas.js"></script>
+<script src="lib/jspdf.js"></script>
 
 <script>
 (function(){
@@ -527,9 +534,9 @@ if(_missing.length){
 // ---------- Marker-Icons (sonst kaputte Standard-Pins bei CDN-Leaflet) ----------
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png'
+  iconRetinaUrl:'lib/images/marker-icon-2x.png',
+  iconUrl:'lib/images/marker-icon.png',
+  shadowUrl:'lib/images/marker-shadow.png'
 });
 
 // ---------- Deutsche Tooltips für Leaflet.Draw ----------
@@ -695,7 +702,7 @@ function makeFeature(layer, kind, labelOverride){
     layer.bindPopup('<b>'+escapeHtml(label)+'</b><br>'+escapeHtml(fmtCoord(ll)));
   }
 
-  features.push({id, kind, label, value, valueText, layer});
+  features.push({id, kind, label, value, valueText, layer, visible:true});
   renderList();
 }
 function addFeature(layer, kind){ makeFeature(layer, kind); }
@@ -708,25 +715,82 @@ function removeFeature(id){
   renderList();
 }
 
+// Popup/Tooltip eines Features nach Umbenennung neu aufbauen (immer escaped)
+function refreshFeaturePopup(f){
+  const L_ = f.label;
+  if(f.kind==='area'){
+    const per = polygonPerimeterM(f.layer);
+    f.layer.setPopupContent('<b>'+escapeHtml(L_)+'</b><br>Fläche: '+fmtAreaFull(f.value)+'<br>Umfang: '+fmtLen(per));
+  } else if(f.kind==='line'){
+    f.layer.setPopupContent('<b>'+escapeHtml(L_)+'</b><br>Länge: '+fmtLen(f.value));
+  } else {
+    const ll = f.layer.getLatLng();
+    f.layer.setPopupContent('<b>'+escapeHtml(L_)+'</b><br>'+escapeHtml(fmtCoord(ll)));
+    if(f.layer.getTooltip()) f.layer.setTooltipContent(escapeHtml(L_));  // Punkt zeigt Namen als Label
+  }
+}
+function renameFeature(id){
+  const f = features.find(x=>x.id===id); if(!f) return;
+  const input = window.prompt('Neue Bezeichnung:', f.label);
+  if(input===null) return;                       // Abbrechen
+  const clean = String(input).trim().slice(0,80);
+  f.label = clean || f.label;                    // leer -> alten Namen behalten
+  refreshFeaturePopup(f);
+  renderList();
+}
+function toggleFeatureVisible(id){
+  const f = features.find(x=>x.id===id); if(!f) return;
+  f.visible = !f.visible;
+  if(f.visible){ if(!drawnItems.hasLayer(f.layer)) drawnItems.addLayer(f.layer); }
+  else { if(drawnItems.hasLayer(f.layer)) drawnItems.removeLayer(f.layer); }
+  renderList();
+}
+
 function renderList(){
   const list = document.getElementById('list');
   list.innerHTML='';
   features.forEach(f=>{
     const row = document.createElement('div');
-    row.className='item';
-    row.innerHTML =
-      '<span class="swatch" style="background:'+colors[f.kind]+'"></span>'+
-      '<div class="meta"><div class="lbl">'+escapeHtml(f.label)+'</div><div class="val">'+escapeHtml(f.valueText)+'</div></div>'+
-      '<button class="del" title="Löschen" aria-label="Löschen">'+
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>'+
-      '</button>';
-    row.querySelector('.del').onclick = ()=>removeFeature(f.id);
-    row.querySelector('.meta').onclick = ()=>{ f.layer.openPopup ? f.layer.openPopup() : null; if(f.layer.getBounds) map.fitBounds(f.layer.getBounds(),{maxZoom:21,padding:[40,40]}); };
+    row.className='item'+(f.visible?'':' hidden-item');
+
+    // Sichtbarkeits-Checkbox
+    const cb = document.createElement('input');
+    cb.type='checkbox'; cb.className='vis'; cb.checked=f.visible;
+    cb.title = f.visible ? 'Ausblenden' : 'Einblenden';
+    cb.setAttribute('aria-label','Messung ein-/ausblenden');
+    cb.onclick = (e)=>{ e.stopPropagation(); toggleFeatureVisible(f.id); };
+
+    const swatch = document.createElement('span');
+    swatch.className='swatch'; swatch.style.background=colors[f.kind];
+
+    const meta = document.createElement('div');
+    meta.className='meta';
+    const lbl = document.createElement('div'); lbl.className='lbl'; lbl.textContent=f.label; // textContent => sicher
+    const val = document.createElement('div'); val.className='val'; val.textContent=f.valueText;
+    meta.appendChild(lbl); meta.appendChild(val);
+    meta.onclick = ()=>{
+      if(!f.visible) return;
+      if(f.layer.openPopup) f.layer.openPopup();
+      if(f.layer.getBounds) map.fitBounds(f.layer.getBounds(),{maxZoom:21,padding:[40,40]});
+      else if(f.layer.getLatLng) map.setView(f.layer.getLatLng(), Math.max(map.getZoom(),19));
+    };
+
+    const edit = document.createElement('button');
+    edit.className='rowbtn edit'; edit.title='Umbenennen'; edit.setAttribute('aria-label','Umbenennen');
+    edit.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+    edit.onclick = (e)=>{ e.stopPropagation(); renameFeature(f.id); };
+
+    const del = document.createElement('button');
+    del.className='rowbtn del'; del.title='Löschen'; del.setAttribute('aria-label','Löschen');
+    del.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+    del.onclick = (e)=>{ e.stopPropagation(); removeFeature(f.id); };
+
+    row.appendChild(cb); row.appendChild(swatch); row.appendChild(meta); row.appendChild(edit); row.appendChild(del);
     list.appendChild(row);
   });
 
   const totalArea = totalAreaM2();
-  const hasAreas = features.some(f=>f.kind==='area');
+  const hasAreas = features.some(f=>f.kind==='area' && f.visible);
   document.getElementById('total').style.display = hasAreas?'block':'none';
   document.getElementById('totalVal').textContent = fmtAreaFull(totalArea);
   document.getElementById('emptyState').style.display = features.length?'none':'block';
@@ -736,7 +800,7 @@ function renderList(){
   document.getElementById('btnGeojson').disabled = !features.length;
   document.getElementById('btnCsv').disabled = !features.length;
 }
-function totalAreaM2(){ return features.filter(f=>f.kind==='area').reduce((s,f)=>s+f.value,0); }
+function totalAreaM2(){ return features.filter(f=>f.kind==='area' && f.visible).reduce((s,f)=>s+f.value,0); }
 
 // ---------- Zeichen-Werkzeuge ----------
 let activeHandler = null;
@@ -789,22 +853,29 @@ function download(name, content, type){
 document.getElementById('btnGeojson').onclick = ()=>{
   const fc = {type:'FeatureCollection', features: features.map(f=>{
     const gj = f.layer.toGeoJSON();
-    gj.properties = {label:f.label, typ:f.kind,
+    gj.properties = {label:f.label, typ:f.kind, sichtbar:f.visible!==false,
       flaeche_m2: f.kind==='area'? Math.round(f.value*10)/10 : undefined,
       laenge_m:   f.kind==='line'? Math.round(f.value*10)/10 : undefined};
     return gj;
   })};
   download('dachvermessung.geojson', JSON.stringify(fc,null,2), 'application/geo+json');
 };
+// Schutz vor CSV-Injection (Excel/Sheets führen führende = + - @ als Formel aus)
+function csvCell(s){
+  let v = String(s==null?'':s);
+  if(/^[=+\-@\t\r]/.test(v)) v = "'"+v;
+  return '"'+v.replace(/"/g,'""')+'"';
+}
 document.getElementById('btnCsv').onclick = ()=>{
-  let csv = 'Bezeichnung;Typ;Wert;Einheit\n';
+  let csv = 'Bezeichnung;Typ;Wert;Einheit;Sichtbar\n';
   features.forEach(f=>{
-    if(f.kind==='area') csv += f.label+';Fläche;'+nf(f.value,1)+';m²\n';
-    else if(f.kind==='line') csv += f.label+';Strecke;'+nf(f.value,1)+';m\n';
-    else csv += f.label+';Punkt;"'+f.valueText+'";Koordinaten\n';
+    const sv = f.visible!==false ? 'ja' : 'nein';
+    if(f.kind==='area') csv += csvCell(f.label)+';Fläche;'+csvCell(nf(f.value,1))+';m²;'+sv+'\n';
+    else if(f.kind==='line') csv += csvCell(f.label)+';Strecke;'+csvCell(nf(f.value,1))+';m;'+sv+'\n';
+    else csv += csvCell(f.label)+';Punkt;'+csvCell(f.valueText)+';Koordinaten;'+sv+'\n';
   });
-  const tot = features.filter(f=>f.kind==='area').reduce((s,f)=>s+f.value,0);
-  csv += 'GESAMT;Dachfläche;'+nf(tot,1)+';m²\n';
+  const tot = totalAreaM2();   // nur sichtbare Flächen, passend zur Anzeige
+  csv += 'GESAMT (sichtbar);Dachfläche;'+csvCell(nf(tot,1))+';m²;\n';
   download('dachvermessung.csv', '\uFEFF'+csv, 'text/csv');
 };
 
@@ -840,7 +911,7 @@ function saveProject(){
     view:{center:[map.getCenter().lat, map.getCenter().lng], zoom:map.getZoom()},
     ui:{opacity:Number(opSlider.value), basemap: isBasemapOn()},
     counters:{area:counters.area, line:counters.line, point:counters.point},
-    features: features.map(f=>{ const gj=f.layer.toGeoJSON(); gj.properties={kind:f.kind, label:f.label}; return gj; })
+    features: features.map(f=>{ const gj=f.layer.toGeoJSON(); gj.properties={kind:f.kind, label:f.label, visible:f.visible!==false}; return gj; })
   };
   downloadBlob('dachvermessung-projekt.json', new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
   showToast('Projekt gespeichert. Das Orthofoto ist nicht enthalten – beim erneuten Öffnen dieselbe GeoTIFF laden.');
@@ -871,7 +942,10 @@ async function loadProject(file){
     if(kind!=='area' && kind!=='line' && kind!=='point') kind = null;   // nur erlaubte Typen
     const label = gj && gj.properties ? gj.properties.label : null;
     const layer = layerFromGeoJSON(gj, kind);
-    if(layer) makeFeature(layer, (kind || (layer instanceof L.Marker?'point':layer instanceof L.Polygon?'area':'line')), label);
+    if(layer){
+      makeFeature(layer, (kind || (layer instanceof L.Marker?'point':layer instanceof L.Polygon?'area':'line')), label);
+      if(gj.properties && gj.properties.visible===false){ toggleFeatureVisible(features[features.length-1].id); }
+    }
   });
   if(data.counters){ counters={area:data.counters.area||0, line:data.counters.line||0, point:data.counters.point||0}; }
 
@@ -966,13 +1040,14 @@ async function exportPDF(){
       let y=m+13;
       features.forEach(f=>{
         if(y>ph-m-8){ pdf.addPage(); y=m+8; }
-        pdf.text(f.label+':', m, y);
-        pdf.text(f.valueText, m+45, y);
+        const name = (f.visible===false ? '(ausgeblendet) ' : '') + f.label;
+        pdf.text(String(name)+':', m, y);
+        pdf.text(String(f.valueText), m+55, y);
         y+=6.5;
       });
       const tot=totalAreaM2();
       if(tot>0){ y+=2; pdf.setFont('helvetica','bold'); pdf.setTextColor(224,100,13);
-        pdf.text('Gesamte Dachfläche: '+fmtAreaFull(tot), m, y); }
+        pdf.text('Gesamte Dachfläche (sichtbar): '+fmtAreaFull(tot), m, y); }
     }
     pdf.save(projectTitle()+'.pdf');
   }catch(e){ exportError(e); }

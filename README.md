@@ -45,6 +45,28 @@ Für eine eigene (Sub-)Domain – z. B. `vermessung.bahl-netz.de`:
    `<dein-benutzername>.github.io` zeigt.
 3. In **Settings → Pages** die Custom Domain eintragen und „Enforce HTTPS" aktivieren.
 
+## Auf GitLab Pages veröffentlichen
+
+GitLab Pages ist ebenfalls statisches Hosting und funktioniert genauso – **auch der CDN-freie
+Betrieb über `vendor.sh` ist dort möglich** (die `lib/`-Dateien werden einfach mit ausgeliefert).
+Der einzige Unterschied: GitLab braucht eine kleine CI-Datei `.gitlab-ci.yml` im Wurzelverzeichnis:
+
+```yaml
+pages:
+  stage: deploy
+  script:
+    - mkdir -p public
+    - cp -r index.html lib public/ 2>/dev/null || cp index.html public/
+  artifacts:
+    paths: [public]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+```
+
+Ablauf: Dateien (inkl. optional `lib/` nach `bash vendor.sh`) ins Repo legen, committen, pushen.
+Die Seite erscheint unter `https://<benutzer>.gitlab.io/<repo>/`. `.nojekyll` wird hier nicht
+benötigt. Eigene Domain analog unter **Settings → Pages**.
+
 ## Bedienung (so erklärst du es dem Kunden)
 
 Die Oberfläche ist in drei nummerierte Schritte gegliedert und enthält oben rechts einen
@@ -54,7 +76,10 @@ Knopf **„Anleitung"** mit einer bebilderten Kurzhilfe.
 > 2. **Werkzeug wählen** – *Fläche messen*, *Länge messen* oder *Punkt setzen*.
 > 3. **Auf das Dach klicken** – Eckpunkte setzen. Fläche schließen: wieder auf den ersten Punkt
 >    klicken. Länge beenden: Doppelklick. Die Werte erscheinen sofort rechts inkl. Gesamtsumme.
-> 4. **Speichern** – *Als PDF* oder *Als Bild* für den Versand; *Arbeit sichern* zum
+> 4. **Benennen &amp; aus-/einblenden** – in der Ergebnisliste jede Messung per Stift-Symbol
+>    umbenennen (z. B. „Dach Süd") und per Häkchen vorübergehend ausblenden; die Gesamtfläche
+>    zählt nur sichtbare Messungen.
+> 5. **Speichern** – *Als PDF* oder *Als Bild* für den Versand; *Arbeit sichern* zum
 >    Späterweitermachen.
 
 Ein laufender Hinweistext unter den Werkzeugen sagt jederzeit, was als Nächstes zu klicken ist.
@@ -99,6 +124,8 @@ gdal_translate odm_orthophoto.tif ortho_cog.tif -of COG -co COMPRESS=DEFLATE
 ```
 
 ## Ohne CDN betreiben (optional, empfohlen für die Kundenseite)
+
+Funktioniert sowohl mit GitHub Pages als auch mit GitLab Pages.
 
 Standardmäßig lädt `index.html` Leaflet, Leaflet.draw, georaster, georaster-layer-for-leaflet
 und Turf von einem CDN. Damit die Seite **keine externen Abhängigkeiten** hat (robuster und
@@ -148,8 +175,11 @@ also sauber referenziert sein (idealerweise mit GCPs/RTK).
   nicht. Keine Nutzung von `localStorage`/`sessionStorage`/`IndexedDB`.
 - **XSS-Härtung:** alle Bezeichnungen werden HTML-escaped, bevor sie in die Oberfläche oder in
   Karten-Popups geschrieben werden; beim Laden von Projektdateien werden Typ (nur
-  `area`/`line`/`point`) und Länge der Bezeichnungen validiert. Eine manipulierte Projektdatei
-  kann damit keinen Code ausführen.
+  `area`/`line`/`point`) und Länge der Bezeichnungen validiert. Eigene Namen für Messungen
+  werden ebenfalls escaped und auf 80 Zeichen begrenzt. Eine manipulierte Projektdatei kann
+  damit keinen Code ausführen.
+- **CSV-Injection-Schutz:** beim CSV-Export werden Zellen, die mit `= + - @` beginnen,
+  neutralisiert, damit Tabellenprogramme sie nicht als Formel ausführen.
 - **Abhängigkeiten:** Standardmäßig werden Bibliotheken vom CDN (unpkg) geladen. Für den
   produktiven Einsatz wird **`vendor.sh`** empfohlen – dann lädt der Browser ausschließlich
   Dateien von deiner eigenen Domain (kein Drittanbieter-CDN, keine Lieferketten-Abhängigkeit).

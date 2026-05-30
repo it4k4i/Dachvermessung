@@ -15,9 +15,12 @@ eigenständig.
 - Es werden **kein IndexedDB, localStorage oder sessionStorage** verwendet. Tab schließen
   oder neu laden = alle Messungen weg, nichts bleibt auf dem Gerät zurück.
 - Persistiert wird nur der normale HTTP-Cache des Browsers für die öffentlichen
-  Programmbibliotheken und – falls eingeblendet – die OpenStreetMap-Kartenkacheln.
-  Für maximalen Datenschutz die Hintergrundkarte deaktivieren (Checkbox unten links) und
-  die Bibliotheken lokal einbinden (siehe „Ohne CDN betreiben").
+  Programmbibliotheken und – falls eingeblendet – die Kartenkacheln der Hintergrundkarte.
+  Die Hintergrundkarte ist **standardmäßig ausgeschaltet** (die Dachvermessung erfolgt auf dem
+  Orthofoto); für maximalen Datenschutz einfach aus lassen. Wird sie eingeblendet, lädt der
+  Browser Kacheln von CARTO (auf OpenStreetMap-Daten basierend) – dabei werden nur ungefähre
+  Koordinaten + IP angefragt, **nie das Orthofoto**. Für einen komplett externen-frei
+  ausgelieferten Auftritt zusätzlich die Bibliotheken lokal einbinden (siehe „Ohne CDN betreiben").
 
 ## Auf GitHub Pages veröffentlichen
 

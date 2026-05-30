@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8" />
+<meta name="referrer" content="strict-origin-when-cross-origin" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>Dachvermessung – GeoTIFF im Browser messen</title>
 <script>
@@ -351,7 +352,7 @@
     <div class="map-ctrl" id="mapCtrl">
       <label>Deckkraft Orthofoto <span id="opVal">100%</span></label>
       <input type="range" id="opacity" min="0" max="100" value="100">
-      <div class="row"><input type="checkbox" id="baseToggle" checked><label style="margin:0;text-transform:none;letter-spacing:0;color:var(--text);font-size:12.5px">Hintergrundkarte (OpenStreetMap)</label></div>
+      <div class="row"><input type="checkbox" id="baseToggle"><label style="margin:0;text-transform:none;letter-spacing:0;color:var(--text);font-size:12.5px">Hintergrundkarte einblenden</label></div>
     </div>
 
     <button class="reload-btn" id="reloadBtn">
@@ -443,9 +444,13 @@ document.getElementById('themeToggle').addEventListener('click', function(){
 
 // ---------- Karte ----------
 const map = L.map('map', {zoomControl:true, attributionControl:true}).setView([49.96, 8.83], 6);
-const baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom:22, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'
-}).addTo(map);
+// Hintergrundkarte: standardmäßig AUS (Dachvermessung erfolgt auf dem Orthofoto).
+// Bei Bedarf einblendbar; CARTO als Anbieter (toleranter als die OSM-Server, kein Referer-Block).
+const baseLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  maxZoom:22, maxNativeZoom:20, subdomains:'abcd',
+  attribution:'&copy; OpenStreetMap &copy; CARTO', crossOrigin:true
+});
+// (OSM-Direktkacheln werden auf manchen Hosts blockiert und sind daher nicht voreingestellt.)
 
 const drawnItems = new L.FeatureGroup().addTo(map);
 let rasterLayer = null;

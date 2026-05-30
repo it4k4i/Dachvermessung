@@ -4,6 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>Dachvermessung – GeoTIFF im Browser messen</title>
+<script>
+  // Start-Theme aus System-Einstellung (kein Speichern; nur diese Sitzung)
+  (function(){
+    var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    document.documentElement.setAttribute('data-theme', prefersLight ? 'light' : 'dark');
+  })();
+</script>
 
 <!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -29,18 +36,49 @@
     --danger:#ff5a5f;
     --radius:12px;
     --shadow:0 10px 30px rgba(0,0,0,.35);
+    /* themeabhängige Flächen */
+    --header-bg:linear-gradient(180deg,#1a212b,#12171e);
+    --drop-bg:radial-gradient(120% 120% at 50% 0%,#1a222d 0%,#0e1116 70%);
+    --loading-bg:rgba(14,17,22,.92);
+    --ctrl-bg:rgba(14,17,22,.9);
+    --map-bg:#e9edf0;
+  }
+  :root[data-theme="light"]{
+    --ink:#eef2f6;
+    --panel:#ffffff;
+    --panel-2:#f3f6f9;
+    --line:#dde3ea;
+    --text:#16202b;
+    --muted:#5d6975;
+    --accent:#e0640d;
+    --accent-soft:rgba(224,100,13,.12);
+    --shadow:0 10px 30px rgba(25,45,70,.12);
+    --header-bg:linear-gradient(180deg,#ffffff,#f1f4f8);
+    --drop-bg:radial-gradient(120% 120% at 50% 0%,#ffffff 0%,#eaeff4 70%);
+    --loading-bg:rgba(244,247,250,.93);
+    --ctrl-bg:rgba(255,255,255,.93);
+    --map-bg:#e9edf0;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;background:var(--ink);color:var(--text);
-    font-family:"IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+    font-family:"IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased;
+    transition:background-color .25s ease,color .25s ease}
   button{font-family:inherit;cursor:pointer}
+  .theme-toggle{width:36px;height:36px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--text);display:grid;place-items:center;flex:0 0 auto;
+    transition:.15s}
+  .theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
+  .theme-toggle svg{width:18px;height:18px}
+  .theme-toggle .ico-sun{display:none}
+  :root[data-theme="light"] .theme-toggle .ico-sun{display:block}
+  :root[data-theme="light"] .theme-toggle .ico-moon{display:none}
 
   .app{display:grid;grid-template-columns:340px 1fr;grid-template-rows:60px 1fr;
     grid-template-areas:"head head" "side map";height:100%}
 
   /* Header */
   header{grid-area:head;display:flex;align-items:center;gap:14px;padding:0 18px;
-    background:linear-gradient(180deg,#1a212b,#12171e);border-bottom:1px solid var(--line);z-index:1200}
+    background:var(--header-bg);border-bottom:1px solid var(--line);z-index:1200}
   .logo{display:flex;align-items:center;gap:11px;min-width:0}
   .mark{width:30px;height:30px;border-radius:8px;flex:0 0 auto;
     background:linear-gradient(135deg,var(--accent),#ffb061);
@@ -107,14 +145,29 @@
   .total .val{font-family:"Archivo";font-weight:800;font-size:23px;font-variant-numeric:tabular-nums;margin-top:2px}
 
   .export{display:flex;gap:8px;margin-top:12px}
-  .export button{flex:1;padding:10px;border-radius:9px;border:1px solid var(--line);
+  .actions{margin-top:12px;display:flex;flex-direction:column;gap:12px}
+  .act-group{}
+  .act-title{font-family:"Archivo";font-weight:700;font-size:10px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);margin:0 0 7px}
+  .act-row{display:flex;gap:8px}
+  .act-row.four{flex-wrap:wrap}
+  .act-row.four button{flex:1 1 calc(50% - 4px)}
+  .act-row button{flex:1;padding:10px;border-radius:9px;border:1px solid var(--line);
     background:var(--panel-2);color:var(--text);font-size:12.5px;font-weight:500;
-    display:flex;align-items:center;justify-content:center;gap:7px}
-  .export button:hover{border-color:#3a4452}
-  .export svg{width:15px;height:15px}
+    display:flex;align-items:center;justify-content:center;gap:7px;transition:.15s}
+  .act-row button:hover:not([disabled]){border-color:var(--accent);color:var(--accent)}
+  .act-row button[disabled]{opacity:.4;cursor:not-allowed}
+  .act-row svg{width:15px;height:15px}
+
+  /* Toast */
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);
+    background:var(--panel);color:var(--text);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:10px;padding:13px 18px;font-size:13px;max-width:440px;box-shadow:var(--shadow);
+    opacity:0;pointer-events:none;transition:.25s;z-index:3000}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
   /* Map */
-  main{grid-area:map;position:relative;background:#e9edf0}
+  main{grid-area:map;position:relative;background:var(--map-bg)}
   #map{position:absolute;inset:0;z-index:1}
   .leaflet-container{background:#dfe5ea;font-family:"IBM Plex Sans",sans-serif}
 
@@ -128,7 +181,7 @@
   .measure-label:before{display:none}
 
   /* Opazitäts-Regler */
-  .map-ctrl{position:absolute;left:14px;bottom:24px;z-index:1000;background:rgba(14,17,22,.9);
+  .map-ctrl{position:absolute;left:14px;bottom:24px;z-index:1000;background:var(--ctrl-bg);
     backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:11px;padding:12px 14px;
     box-shadow:var(--shadow);width:210px;display:none}
   .map-ctrl.show{display:block}
@@ -139,8 +192,8 @@
   .map-ctrl .row input{accent-color:var(--accent)}
 
   .reload-btn{position:absolute;right:14px;top:14px;z-index:1000;display:none;
-    align-items:center;gap:8px;background:rgba(14,17,22,.9);backdrop-filter:blur(8px);
-    color:#fff;border:1px solid var(--line);border-radius:9px;padding:9px 13px;font-size:12.5px;
+    align-items:center;gap:8px;background:var(--ctrl-bg);backdrop-filter:blur(8px);
+    color:var(--text);border:1px solid var(--line);border-radius:9px;padding:9px 13px;font-size:12.5px;
     font-weight:500;box-shadow:var(--shadow)}
   .reload-btn.show{display:flex}
   .reload-btn:hover{border-color:#3a4452}
@@ -148,7 +201,7 @@
 
   /* Drop-Overlay */
   .drop{position:absolute;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;
-    background:radial-gradient(120% 120% at 50% 0%,#1a222d 0%,#0e1116 70%);padding:24px}
+    background:var(--drop-bg);padding:24px}
   .drop.hidden{display:none}
   .drop.dragover .dz{border-color:var(--accent);background:var(--accent-soft);transform:scale(1.01)}
   .dz{width:min(560px,100%);border:2px dashed var(--line);border-radius:20px;padding:46px 40px;
@@ -175,7 +228,7 @@
 
   /* Lade-Status */
   .loading{position:absolute;inset:0;z-index:1150;display:none;align-items:center;justify-content:center;
-    flex-direction:column;gap:18px;background:rgba(14,17,22,.92);color:#fff}
+    flex-direction:column;gap:18px;background:var(--loading-bg);color:var(--text)}
   .loading.show{display:flex}
   .spinner{width:46px;height:46px;border:4px solid var(--line);border-top-color:var(--accent);
     border-radius:50%;animation:spin .9s linear infinite}
@@ -205,6 +258,10 @@
       <div class="title">Dachvermessung<small>GeoTIFF im Browser messen</small></div>
     </div>
     <div class="head-actions">
+      <button class="theme-toggle" id="themeToggle" title="Hell/Dunkel umschalten" aria-label="Hell/Dunkel umschalten">
+        <svg class="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg class="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
       <div class="privacy"><span class="dot"></span><span>100&nbsp;% lokal –</span><b>kein Upload</b></div>
     </div>
   </header>
@@ -248,15 +305,42 @@
         <div class="lbl">Gesamte gemessene Dachfläche</div>
         <div class="val" id="totalVal">0 m²</div>
       </div>
-      <div class="export" id="exportRow" style="display:none">
-        <button id="btnGeojson">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-          GeoJSON
-        </button>
-        <button id="btnCsv">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-          CSV
-        </button>
+      <div class="actions" id="actions">
+        <div class="act-group">
+          <div class="act-title">Projekt</div>
+          <div class="act-row">
+            <button id="btnSave" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+              Speichern
+            </button>
+            <button id="btnLoad">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              Laden
+            </button>
+          </div>
+        </div>
+        <div class="act-group">
+          <div class="act-title">Export</div>
+          <div class="act-row four">
+            <button id="btnPng" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+              PNG
+            </button>
+            <button id="btnPdf" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+              PDF
+            </button>
+            <button id="btnGeojson" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              GeoJSON
+            </button>
+            <button id="btnCsv" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              CSV
+            </button>
+          </div>
+        </div>
+        <input type="file" id="projectInput" accept=".json,application/json" hidden>
       </div>
     </div>
   </aside>
@@ -303,12 +387,16 @@
   </main>
 </div>
 
+<div class="toast" id="toast"></div>
+
 <!-- Bibliotheken -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 <script src="https://unpkg.com/georaster"></script>
 <script src="https://unpkg.com/georaster-layer-for-leaflet/dist/georaster-layer-for-leaflet.min.js"></script>
 <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
 <script>
 (function(){
@@ -347,6 +435,12 @@ dl.polyline.tooltip.cont  = 'Klicken, um die Strecke fortzusetzen';
 dl.polyline.tooltip.end   = 'Letzten Punkt klicken oder Doppelklick zum Beenden';
 dl.marker.tooltip.start   = 'Auf die Karte klicken, um einen Punkt zu setzen';
 
+// ---------- Theme-Umschalter (nur diese Sitzung, kein Speichern) ----------
+document.getElementById('themeToggle').addEventListener('click', function(){
+  const cur = document.documentElement.getAttribute('data-theme')==='light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', cur==='light' ? 'dark' : 'light');
+});
+
 // ---------- Karte ----------
 const map = L.map('map', {zoomControl:true, attributionControl:true}).setView([49.96, 8.83], 6);
 const baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -378,6 +472,8 @@ function fmtCoord(ll){
 // ---------- Mess-Verwaltung ----------
 let features = [];          // {id, kind, label, value, valueText, layer}
 let counters = {area:0, line:0, point:0};
+let uid = 0;
+let currentRasterName = null;
 const colors = {area:'var(--accent)', line:'var(--blue)', point:'var(--green)'};
 
 function polygonAreaM2(layer){
@@ -393,32 +489,29 @@ function lineLengthM(layer){
   return turf.length(turf.lineString(coords),{units:'kilometers'})*1000;
 }
 
-function addFeature(layer, kind){
+function makeFeature(layer, kind, labelOverride){
   drawnItems.addLayer(layer);
-  counters[kind]++;
-  const id = kind+'-'+counters[kind];
-  let value=0, valueText='', label='';
+  const id = 'f'+(++uid);
+  let label;
+  if(labelOverride){ label = labelOverride; }
+  else { counters[kind]++; label = (kind==='area'?'Fläche ':kind==='line'?'Strecke ':'Punkt ')+counters[kind]; }
+  let value=0, valueText='';
 
   if(kind==='area'){
     value = polygonAreaM2(layer);
     const per = polygonPerimeterM(layer);
-    label = 'Fläche '+counters.area;
     valueText = fmtAreaFull(value);
     layer.setStyle({color:'#ff7a18', weight:2.5, fillColor:'#ff7a18', fillOpacity:.22});
     layer.bindTooltip(fmtArea(value), {permanent:true, direction:'center', className:'measure-label area'});
     layer.bindPopup('<b>'+label+'</b><br>Fläche: '+fmtAreaFull(value)+'<br>Umfang: '+fmtLen(per));
   } else if(kind==='line'){
     value = lineLengthM(layer);
-    label = 'Strecke '+counters.line;
     valueText = fmtLen(value);
     layer.setStyle({color:'#3fb6f5', weight:3, dashArray:'6 5'});
-    const mid = layer.getLatLngs()[Math.floor(layer.getLatLngs().length/2)];
     layer.bindTooltip(fmtLen(value), {permanent:true, direction:'top', className:'measure-label line'});
     layer.bindPopup('<b>'+label+'</b><br>Länge: '+fmtLen(value));
   } else {
     const ll = layer.getLatLng();
-    value = 0;
-    label = 'Punkt '+counters.point;
     valueText = fmtCoord(ll);
     layer.bindTooltip(label, {permanent:true, direction:'top', className:'measure-label point'});
     layer.bindPopup('<b>'+label+'</b><br>'+fmtCoord(ll));
@@ -427,6 +520,7 @@ function addFeature(layer, kind){
   features.push({id, kind, label, value, valueText, layer});
   renderList();
 }
+function addFeature(layer, kind){ makeFeature(layer, kind); }
 
 function removeFeature(id){
   const i = features.findIndex(f=>f.id===id);
@@ -453,15 +547,18 @@ function renderList(){
     list.appendChild(row);
   });
 
-  const totalArea = features.filter(f=>f.kind==='area').reduce((s,f)=>s+f.value,0);
+  const totalArea = totalAreaM2();
   const hasAreas = features.some(f=>f.kind==='area');
   document.getElementById('total').style.display = hasAreas?'block':'none';
   document.getElementById('totalVal').textContent = fmtAreaFull(totalArea);
   document.getElementById('emptyState').style.display = features.length?'none':'block';
-  document.getElementById('exportRow').style.display = features.length?'flex':'none';
   document.getElementById('btnClear').disabled = !features.length;
   document.getElementById('btnUndo').disabled = !features.length;
+  document.getElementById('btnSave').disabled = !features.length;
+  document.getElementById('btnGeojson').disabled = !features.length;
+  document.getElementById('btnCsv').disabled = !features.length;
 }
+function totalAreaM2(){ return features.filter(f=>f.kind==='area').reduce((s,f)=>s+f.value,0); }
 
 // ---------- Zeichen-Werkzeuge ----------
 let activeHandler = null;
@@ -532,6 +629,183 @@ document.getElementById('btnCsv').onclick = ()=>{
   download('dachvermessung.csv', '\uFEFF'+csv, 'text/csv');
 };
 
+// ---------- Toast & kleine Helfer ----------
+let toastTimer=null;
+function showToast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'), 6000);
+}
+function downloadBlob(name, blob){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function baseName(n){ return (n||'').replace(/\.[^.]+$/,''); }
+function projectTitle(){ return currentRasterName ? baseName(currentRasterName) : 'Dachvermessung'; }
+function countSummary(){
+  const a=features.filter(f=>f.kind==='area').length, l=features.filter(f=>f.kind==='line').length, p=features.filter(f=>f.kind==='point').length;
+  const parts=[]; if(a)parts.push(a+(a===1?' Fläche':' Flächen')); if(l)parts.push(l+(l===1?' Strecke':' Strecken')); if(p)parts.push(p+(p===1?' Punkt':' Punkte'));
+  return parts.join(', ')||'keine Messungen';
+}
+function subtitleLine(){
+  const d=new Date().toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const tot=totalAreaM2();
+  return d+' · '+countSummary()+(tot>0?' · Dachfläche gesamt: '+fmtAreaFull(tot):'');
+}
+
+// ---------- Projekt speichern / laden ----------
+function saveProject(){
+  const data = {
+    format:'dachvermessung-projekt', version:1,
+    created:new Date().toISOString(),
+    raster:{name: currentRasterName||null},
+    view:{center:[map.getCenter().lat, map.getCenter().lng], zoom:map.getZoom()},
+    ui:{opacity:Number(opSlider.value), basemap: map.hasLayer(baseLayer)},
+    counters:{area:counters.area, line:counters.line, point:counters.point},
+    features: features.map(f=>{ const gj=f.layer.toGeoJSON(); gj.properties={kind:f.kind, label:f.label}; return gj; })
+  };
+  downloadBlob('dachvermessung-projekt.json', new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+  showToast('Projekt gespeichert. Das Orthofoto ist nicht enthalten – beim erneuten Öffnen dieselbe GeoTIFF laden.');
+}
+function layerFromGeoJSON(gj, kind){
+  const g=gj.geometry; if(!g) return null;
+  const k = kind || (g.type==='Polygon'?'area':g.type==='LineString'?'line':'point');
+  if(k==='area'){
+    let ring=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]);
+    if(ring.length>1 && ring[0][0]===ring[ring.length-1][0] && ring[0][1]===ring[ring.length-1][1]) ring.pop();
+    return ring.length>=3 ? L.polygon(ring) : null;
+  } else if(k==='line'){
+    return L.polyline(g.coordinates.map(c=>[c[1],c[0]]));
+  } else {
+    return L.marker([g.coordinates[1], g.coordinates[0]]);
+  }
+}
+async function loadProject(file){
+  let data;
+  try{ data = JSON.parse(await file.text()); }
+  catch(e){ showToast('Datei ist kein gültiges Projekt (JSON konnte nicht gelesen werden).'); return; }
+  if(!data || data.format!=='dachvermessung-projekt'){ showToast('Das ist keine Dachvermessungs-Projektdatei.'); return; }
+  if(features.length && !confirm('Aktuelle Messungen durch das geladene Projekt ersetzen?')) return;
+
+  drawnItems.clearLayers(); features=[]; counters={area:0,line:0,point:0}; uid=0;
+  (data.features||[]).forEach(gj=>{
+    const kind = gj.properties && gj.properties.kind;
+    const label = gj.properties && gj.properties.label;
+    const layer = layerFromGeoJSON(gj, kind);
+    if(layer) makeFeature(layer, (kind|| (layer instanceof L.Marker?'point':layer instanceof L.Polygon?'area':'line')), label);
+  });
+  if(data.counters){ counters={area:data.counters.area||0, line:data.counters.line||0, point:data.counters.point||0}; }
+
+  if(data.ui){
+    if(typeof data.ui.opacity==='number'){ opSlider.value=data.ui.opacity; opSlider.oninput(); }
+    if(typeof data.ui.basemap==='boolean'){ document.getElementById('baseToggle').checked=data.ui.basemap;
+      if(data.ui.basemap){ if(!map.hasLayer(baseLayer)) baseLayer.addTo(map); } else { map.removeLayer(baseLayer); } }
+  }
+  renderList();
+
+  if(drawnItems.getLayers().length){ try{ map.fitBounds(drawnItems.getBounds(),{padding:[40,40],maxZoom:21}); }catch(_){} }
+  else if(data.view && data.view.center){ map.setView(data.view.center, data.view.zoom||16); }
+
+  if(!rasterLayer && data.raster && data.raster.name){
+    showToast('Projekt geladen. Lade das zugehörige Orthofoto „'+data.raster.name+'", um den Hintergrund zu sehen.');
+  } else {
+    showToast('Projekt geladen: '+countSummary()+'.');
+  }
+}
+
+// ---------- Bild / PDF Export ----------
+function exportError(e){
+  console.error(e);
+  alert('Export fehlgeschlagen: '+((e&&e.message)||e)+'\n\nFalls die Hintergrundkarte aktiv ist, bitte deaktivieren und erneut versuchen.');
+}
+async function captureMapCanvas(){
+  if(typeof html2canvas==='undefined') throw new Error('html2canvas wurde nicht geladen');
+  const hadBase = map.hasLayer(baseLayer);
+  if(hadBase) map.removeLayer(baseLayer);             // OSM-Kacheln sind cross-origin -> für sauberen Export entfernen
+  const cc = document.querySelector('.leaflet-control-container');
+  const prev = cc ? cc.style.display : '';
+  if(cc) cc.style.display='none';
+  await new Promise(r=>setTimeout(r, 300));           // Render kurz setzen lassen
+  try{
+    return await html2canvas(document.getElementById('map'), {
+      useCORS:true, allowTaint:false, backgroundColor:'#ffffff', scale:2, logging:false
+    });
+  } finally {
+    if(cc) cc.style.display=prev;
+    if(hadBase) baseLayer.addTo(map);
+  }
+}
+async function exportPNG(){
+  if(!rasterLayer){ return; }
+  showLoading('Bild wird erzeugt …');
+  try{
+    const mapCanvas = await captureMapCanvas();
+    const s = mapCanvas.width / Math.max(1, document.getElementById('map').clientWidth);
+    const headH = Math.round(66*s);
+    const out = document.createElement('canvas');
+    out.width = mapCanvas.width; out.height = mapCanvas.height + headH;
+    const ctx = out.getContext('2d');
+    ctx.fillStyle='#0e1116'; ctx.fillRect(0,0,out.width,headH);
+    ctx.fillStyle='#ff7a18'; ctx.fillRect(0,headH-Math.round(4*s),out.width,Math.round(4*s));
+    ctx.textBaseline='middle';
+    ctx.fillStyle='#ffffff'; ctx.font='700 '+Math.round(21*s)+'px "IBM Plex Sans", Arial, sans-serif';
+    ctx.fillText(projectTitle(), Math.round(20*s), Math.round(headH*0.40));
+    ctx.fillStyle='#9aa3af'; ctx.font='400 '+Math.round(13*s)+'px "IBM Plex Sans", Arial, sans-serif';
+    ctx.fillText(subtitleLine(), Math.round(20*s), Math.round(headH*0.74));
+    ctx.drawImage(mapCanvas, 0, headH);
+    out.toBlob(b=>{ if(b) downloadBlob(projectTitle()+'.png', b); else throw new Error('PNG konnte nicht erzeugt werden'); }, 'image/png');
+  }catch(e){ exportError(e); }
+  finally{ hideLoading(); }
+}
+async function exportPDF(){
+  if(!rasterLayer){ return; }
+  if(!window.jspdf || !window.jspdf.jsPDF){ alert('jsPDF wurde nicht geladen.'); return; }
+  showLoading('PDF wird erzeugt …');
+  try{
+    const mapCanvas = await captureMapCanvas();
+    const { jsPDF } = window.jspdf;
+    const landscape = mapCanvas.width >= mapCanvas.height;
+    const pdf = new jsPDF({orientation: landscape?'landscape':'portrait', unit:'mm', format:'a4'});
+    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+    const m = 12;
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(16); pdf.setTextColor(20,20,20);
+    pdf.text(projectTitle(), m, m+3);
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(9); pdf.setTextColor(110,110,110);
+    pdf.text(subtitleLine(), m, m+9);
+    const img = mapCanvas.toDataURL('image/png');
+    const top = m+13, availW = pw-m*2, availH = ph-top-m;
+    const r = Math.min(availW/mapCanvas.width, availH/mapCanvas.height);
+    const w = mapCanvas.width*r, h = mapCanvas.height*r;
+    pdf.addImage(img, 'PNG', (pw-w)/2, top, w, h);
+
+    if(features.length){
+      pdf.addPage();
+      pdf.setFont('helvetica','bold'); pdf.setFontSize(14); pdf.setTextColor(20,20,20);
+      pdf.text('Messungen', m, m+4);
+      pdf.setFont('helvetica','normal'); pdf.setFontSize(10); pdf.setTextColor(45,45,45);
+      let y=m+13;
+      features.forEach(f=>{
+        if(y>ph-m-8){ pdf.addPage(); y=m+8; }
+        pdf.text(f.label+':', m, y);
+        pdf.text(f.valueText, m+45, y);
+        y+=6.5;
+      });
+      const tot=totalAreaM2();
+      if(tot>0){ y+=2; pdf.setFont('helvetica','bold'); pdf.setTextColor(224,100,13);
+        pdf.text('Gesamte Dachfläche: '+fmtAreaFull(tot), m, y); }
+    }
+    pdf.save(projectTitle()+'.pdf');
+  }catch(e){ exportError(e); }
+  finally{ hideLoading(); }
+}
+
+// ---------- Buttons verdrahten ----------
+document.getElementById('btnSave').onclick = saveProject;
+const projectInput = document.getElementById('projectInput');
+document.getElementById('btnLoad').onclick = ()=>projectInput.click();
+projectInput.onchange = e=>{ const f=e.target.files[0]; if(f) loadProject(f); e.target.value=''; };
+document.getElementById('btnPng').onclick = exportPNG;
+document.getElementById('btnPdf').onclick = exportPDF;
+
 // ---------- Karten-Steuerung ----------
 const opSlider = document.getElementById('opacity');
 opSlider.oninput = ()=>{
@@ -566,6 +840,7 @@ document.getElementById('urlBtn').onclick = ()=>{
   const url = document.getElementById('urlInput').value.trim();
   if(!url) return;
   showLoading('GeoTIFF wird geladen …');
+  try{ currentRasterName = decodeURIComponent(url.split('/').pop().split('?')[0]) || 'orthofoto.tif'; }catch(_){ currentRasterName='orthofoto.tif'; }
   fetch(url).then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.arrayBuffer(); })
     .then(renderRaster)
     .catch(err=>showError('Konnte die URL nicht laden ('+err.message+').<br>Hinweis: Der Server muss CORS erlauben. Am sichersten ist es, die Datei lokal auszuwählen.'));
@@ -584,6 +859,7 @@ async function handleFile(file){
     return;
   }
   showLoading('GeoTIFF wird gelesen … ('+ (file.size/1048576).toFixed(0) +' MB)');
+  currentRasterName = file.name;
   try{
     const buf = await file.arrayBuffer();
     await renderRaster(buf);
@@ -631,6 +907,8 @@ async function renderRaster(arrayBuffer){
     document.getElementById('btnArea').disabled=false;
     document.getElementById('btnLine').disabled=false;
     document.getElementById('btnPoint').disabled=false;
+    document.getElementById('btnPng').disabled=false;
+    document.getElementById('btnPdf').disabled=false;
     document.getElementById('hint').innerHTML='Werkzeug wählen und auf das Dach klicken. Fläche schließen: auf den ersten Punkt klicken. Strecke beenden: Doppelklick. Auf eine Messung in der Liste klicken, um sie auf der Karte zu finden.';
   }catch(err){
     showError('Das ist keine gültige bzw. unterstützte GeoTIFF.<br><small>'+(err.message||err)+'</small>');

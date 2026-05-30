@@ -49,8 +49,19 @@ Für eine eigene (Sub-)Domain – z. B. `vermessung.bahl-netz.de`:
 > 3. Werkzeug wählen: **Fläche** (Dachfläche in m²), **Strecke** oder **Punkt**.
 > 4. Auf das Dach klicken. Fläche schließen: auf den ersten Punkt klicken.
 >    Strecke beenden: Doppelklick.
-> 5. Ergebnisse erscheinen rechts inkl. Summe. Über **GeoJSON/CSV** lassen sie sich
->    speichern und in der PV-Planung weiterverwenden.
+> 5. Ergebnisse erscheinen rechts inkl. Summe.
+
+### Speichern, Laden, Export
+
+- **Projekt speichern / laden:** Über „Projekt → Speichern" werden alle Einzeichnungen als
+  `.json` gesichert; „Laden" stellt sie wieder her. Das (große) Orthofoto wird **nicht**
+  mitgespeichert – beim erneuten Öffnen einfach dieselbe GeoTIFF-Datei laden, dann liegen die
+  Messungen wieder darüber.
+- **PNG / PDF:** Exportiert die aktuelle Kartenansicht inklusive aller Einzeichnungen und
+  Beschriftungen, mit Titel- und Summenkopf. Für einen sauberen Export wird die
+  OpenStreetMap-Hintergrundkarte dabei automatisch ausgeblendet (cross-origin).
+- **GeoJSON / CSV:** Reine Messdaten für die Weiterverarbeitung in GIS bzw. Tabellen.
+- **Hell-/Dunkelmodus:** Umschalter oben rechts; Startwert nach System-Einstellung.
 
 ## Unterstützte Dateien
 
@@ -87,6 +98,8 @@ abgelegt). Danach `lib/` und `index.html` mit committen.
 - [georaster](https://github.com/GeoTIFF/georaster) / [georaster-layer-for-leaflet](https://github.com/GeoTIFF/georaster-layer-for-leaflet) – GeoTIFF-Rendering im Browser
 - [Leaflet.draw](https://github.com/Leaflet/Leaflet.draw) – Zeichenwerkzeuge
 - [Turf.js](https://turfjs.org/) – geodätische Flächen- und Längenberechnung
+- [html2canvas](https://html2canvas.hertzen.com/) – PNG-Export der Kartenansicht
+- [jsPDF](https://github.com/parallax/jsPDF) – PDF-Export
 - Keine Build-Schritte, kein Backend – eine einzige HTML-Datei.
 
 ## Lizenz

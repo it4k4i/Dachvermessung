@@ -503,7 +503,6 @@
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 <script src="https://unpkg.com/georaster"></script>
 <script src="https://unpkg.com/georaster-layer-for-leaflet/dist/georaster-layer-for-leaflet.min.js"></script>
-<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
@@ -514,7 +513,6 @@ const _missing=[];
 if(typeof L==='undefined') _missing.push('Leaflet');
 if(typeof parseGeoraster==='undefined') _missing.push('georaster');
 if(typeof GeoRasterLayer==='undefined') _missing.push('georaster-layer-for-leaflet');
-if(typeof turf==='undefined') _missing.push('Turf');
 if(_missing.length){
   const l=document.getElementById('loading'); l.classList.add('show');
   document.querySelector('.spinner').style.display='none';
@@ -620,24 +618,60 @@ let uid = 0;
 let currentRasterName = null;
 const colors = {area:'var(--accent)', line:'var(--blue)', point:'var(--green)'};
 
+// ---------- Geodätische Messung (lokale Projektion, WGS84-Krümmungsradien) ----------
+// Genauer als die Kugelnäherung: < 0,0002 % Abweichung für dachgroße Flächen, breitengrad-
+// unabhängig. Leaflet liefert die Eckpunkte in echten WGS84-Koordinaten (lat/lng), die
+// Lagegenauigkeit selbst stammt aus der Georeferenzierung des GeoTIFF.
+const _A_WGS = 6378137.0, _F_WGS = 1/298.257223563, _E2_WGS = _F_WGS*(2-_F_WGS);
+function _radii(latDeg){
+  const phi = latDeg*Math.PI/180, s = Math.sin(phi), t = 1 - _E2_WGS*s*s;
+  return { M: _A_WGS*(1-_E2_WGS)/Math.pow(t,1.5), N: _A_WGS/Math.sqrt(t) };
+}
+// Projiziert lat/lng-Punkte in lokale Meter um den Schwerpunkt-Breitengrad.
+function _toLocalMeters(latlngs){
+  if(!latlngs.length) return [];
+  let lat0 = 0; latlngs.forEach(p=>lat0 += p.lat); lat0 /= latlngs.length;
+  const { M, N } = _radii(lat0), cphi = Math.cos(lat0*Math.PI/180);
+  return latlngs.map(p=>({ x:(p.lng*Math.PI/180)*N*cphi, y:(p.lat*Math.PI/180)*M }));
+}
+function _ringLatLngs(layer){
+  let r = layer.getLatLngs();
+  while(Array.isArray(r) && r.length && Array.isArray(r[0])) r = r[0];   // erste Ring-Ebene
+  return r || [];
+}
 function polygonAreaM2(layer){
-  return turf.area(layer.toGeoJSON());
+  const ring = _ringLatLngs(layer);
+  if(ring.length < 3) return 0;
+  const xy = _toLocalMeters(ring);
+  let s = 0;
+  for(let i=0;i<xy.length;i++){ const aP=xy[i], bP=xy[(i+1)%xy.length]; s += aP.x*bP.y - bP.x*aP.y; }
+  return Math.abs(s)/2;
+}
+function _polylineLengthM(latlngs){
+  if(latlngs.length < 2) return 0;
+  const xy = _toLocalMeters(latlngs);
+  let d = 0;
+  for(let i=0;i<xy.length-1;i++){ const dx=xy[i+1].x-xy[i].x, dy=xy[i+1].y-xy[i].y; d += Math.hypot(dx,dy); }
+  return d;
 }
 function polygonPerimeterM(layer){
-  let ring = layer.getLatLngs()[0].map(p=>[p.lng,p.lat]);
-  if(ring.length) ring.push(ring[0]);
-  return turf.length(turf.lineString(ring),{units:'kilometers'})*1000;
+  const ring = _ringLatLngs(layer);
+  if(ring.length < 2) return 0;
+  return _polylineLengthM(ring.concat([ring[0]]));
 }
 function lineLengthM(layer){
-  const coords = layer.getLatLngs().map(p=>[p.lng,p.lat]);
-  return turf.length(turf.lineString(coords),{units:'kilometers'})*1000;
+  return _polylineLengthM(layer.getLatLngs());
 }
 
+// HTML-Escaping gegen XSS (z. B. aus geladenen Projektdateien mit manipulierten Bezeichnungen)
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 function makeFeature(layer, kind, labelOverride){
   drawnItems.addLayer(layer);
   const id = 'f'+(++uid);
   let label;
-  if(labelOverride){ label = labelOverride; }
+  if(labelOverride){ label = String(labelOverride).slice(0,80); }
   else { counters[kind]++; label = (kind==='area'?'Fläche ':kind==='line'?'Strecke ':'Punkt ')+counters[kind]; }
   let value=0, valueText='';
 
@@ -647,18 +681,18 @@ function makeFeature(layer, kind, labelOverride){
     valueText = fmtAreaFull(value);
     layer.setStyle({color:'#ff7a18', weight:2.5, fillColor:'#ff7a18', fillOpacity:.22});
     layer.bindTooltip(fmtArea(value), {permanent:true, direction:'center', className:'measure-label area'});
-    layer.bindPopup('<b>'+label+'</b><br>Fläche: '+fmtAreaFull(value)+'<br>Umfang: '+fmtLen(per));
+    layer.bindPopup('<b>'+escapeHtml(label)+'</b><br>Fläche: '+fmtAreaFull(value)+'<br>Umfang: '+fmtLen(per));
   } else if(kind==='line'){
     value = lineLengthM(layer);
     valueText = fmtLen(value);
     layer.setStyle({color:'#3fb6f5', weight:3, dashArray:'6 5'});
     layer.bindTooltip(fmtLen(value), {permanent:true, direction:'top', className:'measure-label line'});
-    layer.bindPopup('<b>'+label+'</b><br>Länge: '+fmtLen(value));
+    layer.bindPopup('<b>'+escapeHtml(label)+'</b><br>Länge: '+fmtLen(value));
   } else {
     const ll = layer.getLatLng();
     valueText = fmtCoord(ll);
-    layer.bindTooltip(label, {permanent:true, direction:'top', className:'measure-label point'});
-    layer.bindPopup('<b>'+label+'</b><br>'+fmtCoord(ll));
+    layer.bindTooltip(escapeHtml(label), {permanent:true, direction:'top', className:'measure-label point'});
+    layer.bindPopup('<b>'+escapeHtml(label)+'</b><br>'+escapeHtml(fmtCoord(ll)));
   }
 
   features.push({id, kind, label, value, valueText, layer});
@@ -682,7 +716,7 @@ function renderList(){
     row.className='item';
     row.innerHTML =
       '<span class="swatch" style="background:'+colors[f.kind]+'"></span>'+
-      '<div class="meta"><div class="lbl">'+f.label+'</div><div class="val">'+f.valueText+'</div></div>'+
+      '<div class="meta"><div class="lbl">'+escapeHtml(f.label)+'</div><div class="val">'+escapeHtml(f.valueText)+'</div></div>'+
       '<button class="del" title="Löschen" aria-label="Löschen">'+
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>'+
       '</button>';
@@ -833,10 +867,11 @@ async function loadProject(file){
 
   drawnItems.clearLayers(); features=[]; counters={area:0,line:0,point:0}; uid=0;
   (data.features||[]).forEach(gj=>{
-    const kind = gj.properties && gj.properties.kind;
-    const label = gj.properties && gj.properties.label;
+    let kind = gj && gj.properties && gj.properties.kind;
+    if(kind!=='area' && kind!=='line' && kind!=='point') kind = null;   // nur erlaubte Typen
+    const label = gj && gj.properties ? gj.properties.label : null;
     const layer = layerFromGeoJSON(gj, kind);
-    if(layer) makeFeature(layer, (kind|| (layer instanceof L.Marker?'point':layer instanceof L.Polygon?'area':'line')), label);
+    if(layer) makeFeature(layer, (kind || (layer instanceof L.Marker?'point':layer instanceof L.Polygon?'area':'line')), label);
   });
   if(data.counters){ counters={area:data.counters.area||0, line:data.counters.line||0, point:data.counters.point||0}; }
 

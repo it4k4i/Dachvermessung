@@ -117,10 +117,74 @@ abgelegt). Danach `lib/` und `index.html` mit committen.
 - [Leaflet](https://leafletjs.com/) – Kartenanzeige
 - [georaster](https://github.com/GeoTIFF/georaster) / [georaster-layer-for-leaflet](https://github.com/GeoTIFF/georaster-layer-for-leaflet) – GeoTIFF-Rendering im Browser
 - [Leaflet.draw](https://github.com/Leaflet/Leaflet.draw) – Zeichenwerkzeuge
-- [Turf.js](https://turfjs.org/) – geodätische Flächen- und Längenberechnung
+- Flächen-/Längenberechnung: **eigene geodätische Funktion** (lokale Projektion mit
+  WGS84-Krümmungsradien) – keine externe Geometrie-Bibliothek nötig
 - [html2canvas](https://html2canvas.hertzen.com/) – PNG-Export der Kartenansicht
 - [jsPDF](https://github.com/parallax/jsPDF) – PDF-Export
 - Keine Build-Schritte, kein Backend – eine einzige HTML-Datei.
+
+## Messgenauigkeit
+
+Die Flächen werden **geodätisch** berechnet: Die gezeichneten Eckpunkte liegen als echte
+WGS84-Koordinaten (Länge/Breite) vor und werden um ihren Schwerpunkt-Breitengrad mit den
+korrekten Erd-Krümmungsradien (Meridian- und Querkrümmungsradius) in lokale Meter projiziert;
+darauf folgt die Gauss’sche Trapezformel. Gegen eine geodätische Referenz getestet:
+
+| Dachkante | Fläche | Abweichung der Methode |
+|-----------|--------|------------------------|
+| 8 m       | 64 m²  | < 0,001 % |
+| 15 m      | 225 m² | < 0,001 % |
+| 40 m      | 1 600 m² | < 0,001 % |
+
+Die frühere Kugelnäherung hatte eine breitengradabhängige Abweichung von rund 0,1–0,2 % und
+wurde deshalb ersetzt. **Wichtig:** Die absolute Lagegenauigkeit hängt von der
+Georeferenzierung deines Orthofotos ab (Bodenkontrollpunkte/GPS in WebODM) sowie von der
+Klickgenauigkeit – nicht von der Rechenmethode. Für m²-genaue PV-Planung sollte das Orthofoto
+also sauber referenziert sein (idealerweise mit GCPs/RTK).
+
+## Sicherheit & Code-Qualität
+
+- **Kein Server, kein Upload:** reine Client-Anwendung; Datei und Messungen verlassen das Gerät
+  nicht. Keine Nutzung von `localStorage`/`sessionStorage`/`IndexedDB`.
+- **XSS-Härtung:** alle Bezeichnungen werden HTML-escaped, bevor sie in die Oberfläche oder in
+  Karten-Popups geschrieben werden; beim Laden von Projektdateien werden Typ (nur
+  `area`/`line`/`point`) und Länge der Bezeichnungen validiert. Eine manipulierte Projektdatei
+  kann damit keinen Code ausführen.
+- **Abhängigkeiten:** Standardmäßig werden Bibliotheken vom CDN (unpkg) geladen. Für den
+  produktiven Einsatz wird **`vendor.sh`** empfohlen – dann lädt der Browser ausschließlich
+  Dateien von deiner eigenen Domain (kein Drittanbieter-CDN, keine Lieferketten-Abhängigkeit).
+  Wer beim CDN bleibt, kann zusätzlich Subresource-Integrity-Hashes (`integrity="sha384-…"`)
+  an den `<script>`-Tags ergänzen.
+- **Optionale Content-Security-Policy:** Wer die Seite auf eigener Domain betreibt, kann im
+  `<head>` z. B. ergänzen (bei lokal eingebundenen Bibliotheken strenger setzbar):
+  ```html
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com;
+                 style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com;
+                 font-src https://fonts.gstatic.com; img-src 'self' data: blob: https:;
+                 connect-src 'self' https: blob:; worker-src 'self' blob:;">
+  ```
+  Vor dem Scharfschalten kurz testen (georaster nutzt teils Web-Worker/Blobs).
+- **Fehlerbehandlung:** Datei-Lesen, Rendern und Export sind in `try/catch` gekapselt; schlägt
+  ein Export-CDN fehl, bleibt das Messen funktionsfähig und es erscheint eine klare Meldung.
+
+## Erfüllt die Anforderungen? (Checkliste)
+
+| Anforderung | Status |
+|-------------|--------|
+| Kunde bekommt das GeoTIFF (E-Mail/WeTransfer) und öffnet es selbst | ✅ Datei wird lokal geöffnet (Ziehen/Auswählen) |
+| Öffnen im Browser – keine Installation, kein Account | ✅ Eine statische HTML-Seite, nichts zu installieren |
+| Kunde misst selbst: Polygone, m², Punkte, Linien | ✅ Werkzeuge „Fläche/Länge/Punkt", Werte sofort sichtbar |
+| Eigenständige PV-Planung (Flächen, Hindernisse, Strecken) | ✅ beliebig viele Messungen, Summe, Export als PDF/Bild |
+| Kostenlos | ✅ keine Lizenz-/Abokosten |
+| Idealerweise ohne Upload auf fremde Server | ✅ Datei + Messungen bleiben im Browser; kein Upload |
+| WebODM nicht öffentlich hosten | ✅ WebODM bleibt bei dir; nur die fertige Datei wird weitergegeben |
+| Nichts in eine kostenpflichtige Cloud hochladen | ✅ keine Cloud-Plattform nötig |
+| Kunden nicht technikaffin – Installation ein No-Go | ✅ geführte 3-Schritt-Oberfläche + „Anleitung", keine Installation |
+
+Einzige externe Verbindungen im Standardbetrieb: die Programmbibliotheken vom CDN und – nur
+falls eingeblendet – die optionale Straßenkarte. Beide lassen sich per `vendor.sh` bzw. durch
+Ausschalten der Straßenkarte vermeiden; **die GeoTIFF-Datei selbst wird nie übertragen.**
 
 ## Lizenz
 

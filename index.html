@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Dachvermessung – GeoTIFF im Browser messen</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+
+<!-- Schriften -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --ink:#0e1116;
+    --panel:#161b22;
+    --panel-2:#1d242e;
+    --line:#2a323d;
+    --text:#eef1f4;
+    --muted:#97a1ad;
+    --accent:#ff7a18;      /* Flächen / Primär */
+    --accent-soft:rgba(255,122,24,.16);
+    --blue:#3fb6f5;        /* Strecken */
+    --green:#37d39b;       /* Punkte / OK */
+    --danger:#ff5a5f;
+    --radius:12px;
+    --shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--ink);color:var(--text);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  button{font-family:inherit;cursor:pointer}
+
+  .app{display:grid;grid-template-columns:340px 1fr;grid-template-rows:60px 1fr;
+    grid-template-areas:"head head" "side map";height:100%}
+
+  /* Header */
+  header{grid-area:head;display:flex;align-items:center;gap:14px;padding:0 18px;
+    background:linear-gradient(180deg,#1a212b,#12171e);border-bottom:1px solid var(--line);z-index:1200}
+  .logo{display:flex;align-items:center;gap:11px;min-width:0}
+  .mark{width:30px;height:30px;border-radius:8px;flex:0 0 auto;
+    background:linear-gradient(135deg,var(--accent),#ffb061);
+    display:grid;place-items:center;box-shadow:0 4px 14px rgba(255,122,24,.4)}
+  .mark svg{width:18px;height:18px;display:block}
+  .title{font-family:"Archivo",sans-serif;font-weight:800;letter-spacing:-.02em;font-size:17px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .title small{display:block;font-family:"IBM Plex Sans";font-weight:500;font-size:11px;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .head-actions{margin-left:auto;display:flex;gap:9px;align-items:center}
+  .privacy{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
+    background:rgba(55,211,155,.1);border:1px solid rgba(55,211,155,.25);
+    padding:6px 11px;border-radius:999px}
+  .privacy b{color:var(--green);font-weight:600}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+
+  /* Sidebar */
+  aside{grid-area:side;background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;overflow:hidden}
+  .sec{padding:16px 16px 14px;border-bottom:1px solid var(--line)}
+  .sec h2{font-family:"Archivo";font-weight:700;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+
+  .tools{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .tool{display:flex;flex-direction:column;align-items:center;gap:7px;padding:13px 8px;
+    background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius);
+    color:var(--text);font-size:12.5px;font-weight:500;transition:.15s;text-align:center;line-height:1.2}
+  .tool:hover{border-color:#3a4452;transform:translateY(-1px)}
+  .tool svg{width:22px;height:22px}
+  .tool.t-area svg{color:var(--accent)}
+  .tool.t-line svg{color:var(--blue)}
+  .tool.t-point svg{color:var(--green)}
+  .tool.active{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+  .tool.full{grid-column:1/-1;flex-direction:row;justify-content:center;gap:9px;padding:11px}
+  .tool.danger{color:var(--danger)}
+  .tool.danger svg{color:var(--danger)}
+  .tool[disabled]{opacity:.4;cursor:not-allowed;transform:none}
+
+  .hint{font-size:12px;color:var(--muted);margin-top:11px;line-height:1.5}
+  .hint kbd{background:var(--panel-2);border:1px solid var(--line);border-radius:5px;
+    padding:1px 6px;font-family:inherit;font-size:11px}
+
+  /* Ergebnisliste */
+  .results{flex:1;overflow-y:auto;padding:14px 14px 18px}
+  .results h2{font-family:"Archivo";font-weight:700;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);margin:0 0 12px;display:flex;justify-content:space-between}
+  .empty{color:var(--muted);font-size:13px;line-height:1.6;text-align:center;padding:26px 8px}
+  .empty svg{width:34px;height:34px;opacity:.4;margin-bottom:10px}
+
+  .item{display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:10px;
+    background:var(--panel-2);border:1px solid var(--line);margin-bottom:8px}
+  .swatch{width:9px;height:34px;border-radius:4px;flex:0 0 auto}
+  .item .meta{min-width:0;flex:1}
+  .item .lbl{font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+  .item .val{font-weight:600;font-size:14px;font-variant-numeric:tabular-nums}
+  .item .del{background:none;border:none;color:var(--muted);width:28px;height:28px;border-radius:7px;
+    display:grid;place-items:center;flex:0 0 auto}
+  .item .del:hover{background:rgba(255,90,95,.15);color:var(--danger)}
+
+  .total{margin-top:6px;padding:13px 14px;border-radius:10px;
+    background:linear-gradient(135deg,var(--accent-soft),rgba(255,122,24,.04));
+    border:1px solid rgba(255,122,24,.3)}
+  .total .lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+  .total .val{font-family:"Archivo";font-weight:800;font-size:23px;font-variant-numeric:tabular-nums;margin-top:2px}
+
+  .export{display:flex;gap:8px;margin-top:12px}
+  .export button{flex:1;padding:10px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--text);font-size:12.5px;font-weight:500;
+    display:flex;align-items:center;justify-content:center;gap:7px}
+  .export button:hover{border-color:#3a4452}
+  .export svg{width:15px;height:15px}
+
+  /* Map */
+  main{grid-area:map;position:relative;background:#e9edf0}
+  #map{position:absolute;inset:0;z-index:1}
+  .leaflet-container{background:#dfe5ea;font-family:"IBM Plex Sans",sans-serif}
+
+  /* Mess-Labels auf der Karte */
+  .measure-label{background:rgba(14,17,22,.86);color:#fff;border:none;border-radius:7px;
+    padding:3px 8px;font-weight:600;font-size:12px;box-shadow:0 3px 10px rgba(0,0,0,.4);
+    font-variant-numeric:tabular-nums}
+  .measure-label.area{border-left:3px solid var(--accent)}
+  .measure-label.line{border-left:3px solid var(--blue)}
+  .measure-label.point{border-left:3px solid var(--green)}
+  .measure-label:before{display:none}
+
+  /* Opazitäts-Regler */
+  .map-ctrl{position:absolute;left:14px;bottom:24px;z-index:1000;background:rgba(14,17,22,.9);
+    backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:11px;padding:12px 14px;
+    box-shadow:var(--shadow);width:210px;display:none}
+  .map-ctrl.show{display:block}
+  .map-ctrl label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+    display:flex;justify-content:space-between;margin-bottom:8px}
+  .map-ctrl input[type=range]{width:100%;accent-color:var(--accent)}
+  .map-ctrl .row{display:flex;align-items:center;gap:8px;margin-top:11px;font-size:12.5px;color:var(--text)}
+  .map-ctrl .row input{accent-color:var(--accent)}
+
+  .reload-btn{position:absolute;right:14px;top:14px;z-index:1000;display:none;
+    align-items:center;gap:8px;background:rgba(14,17,22,.9);backdrop-filter:blur(8px);
+    color:#fff;border:1px solid var(--line);border-radius:9px;padding:9px 13px;font-size:12.5px;
+    font-weight:500;box-shadow:var(--shadow)}
+  .reload-btn.show{display:flex}
+  .reload-btn:hover{border-color:#3a4452}
+  .reload-btn svg{width:15px;height:15px}
+
+  /* Drop-Overlay */
+  .drop{position:absolute;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(120% 120% at 50% 0%,#1a222d 0%,#0e1116 70%);padding:24px}
+  .drop.hidden{display:none}
+  .drop.dragover .dz{border-color:var(--accent);background:var(--accent-soft);transform:scale(1.01)}
+  .dz{width:min(560px,100%);border:2px dashed var(--line);border-radius:20px;padding:46px 40px;
+    text-align:center;transition:.18s;background:rgba(255,255,255,.015)}
+  .dz .icon{width:62px;height:62px;border-radius:16px;margin:0 auto 22px;
+    background:linear-gradient(135deg,var(--accent),#ffb061);display:grid;place-items:center;
+    box-shadow:0 10px 30px rgba(255,122,24,.45)}
+  .dz .icon svg{width:32px;height:32px;color:#0e1116}
+  .dz h1{font-family:"Archivo";font-weight:800;font-size:25px;letter-spacing:-.02em;margin:0 0 9px}
+  .dz p{color:var(--muted);font-size:14px;line-height:1.6;margin:0 auto 24px;max-width:420px}
+  .dz .cta{display:inline-flex;align-items:center;gap:9px;background:var(--accent);color:#0e1116;
+    border:none;border-radius:11px;padding:13px 24px;font-weight:700;font-size:15px;
+    box-shadow:0 8px 24px rgba(255,122,24,.35)}
+  .dz .cta:hover{filter:brightness(1.06)}
+  .dz .cta svg{width:19px;height:19px}
+  .dz .sub{margin-top:18px;font-size:12px;color:var(--muted)}
+  .dz .sub b{color:var(--green)}
+  .url-row{display:flex;gap:8px;margin-top:20px;max-width:440px;margin-inline:auto}
+  .url-row input{flex:1;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;
+    color:var(--text);padding:10px 12px;font-family:inherit;font-size:13px}
+  .url-row button{background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    border-radius:9px;padding:0 16px;font-weight:500;font-size:13px}
+  .url-row button:hover{border-color:#3a4452}
+
+  /* Lade-Status */
+  .loading{position:absolute;inset:0;z-index:1150;display:none;align-items:center;justify-content:center;
+    flex-direction:column;gap:18px;background:rgba(14,17,22,.92);color:#fff}
+  .loading.show{display:flex}
+  .spinner{width:46px;height:46px;border:4px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:spin .9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loading p{font-size:14px;color:var(--muted)}
+  .err{color:var(--danger);max-width:420px;text-align:center;font-size:14px;line-height:1.5;padding:0 20px}
+
+  @media (max-width:860px){
+    .app{grid-template-columns:1fr;grid-template-rows:56px 40vh 1fr;
+      grid-template-areas:"head" "map" "side"}
+    aside{border-right:none;border-top:1px solid var(--line)}
+    main{grid-area:map}
+    .privacy span{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="logo">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#0e1116" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 21l4-9 5 3 4-8 5 5"/><path d="M3 21h18"/>
+        </svg>
+      </div>
+      <div class="title">Dachvermessung<small>GeoTIFF im Browser messen</small></div>
+    </div>
+    <div class="head-actions">
+      <div class="privacy"><span class="dot"></span><span>100&nbsp;% lokal –</span><b>kein Upload</b></div>
+    </div>
+  </header>
+
+  <aside>
+    <div class="sec">
+      <h2>Messwerkzeuge</h2>
+      <div class="tools">
+        <button class="tool t-area" id="btnArea" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6-4 6 4 6-3v13l-6 3-6-4-6 4z"/><path d="M9 3v17M15 7v13"/></svg>
+          Fläche (m²)
+        </button>
+        <button class="tool t-line" id="btnLine" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19L19 5"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/></svg>
+          Strecke
+        </button>
+        <button class="tool t-point" id="btnPoint" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-7.5-7-12a7 7 0 0 1 14 0c0 4.5-7 12-7 12z"/><circle cx="12" cy="9" r="2.4"/></svg>
+          Punkt
+        </button>
+        <button class="tool" id="btnUndo" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
+          Zurück
+        </button>
+        <button class="tool full danger" id="btnClear" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+          Alle Messungen löschen
+        </button>
+      </div>
+      <p class="hint" id="hint">Zuerst eine GeoTIFF-Datei laden. Dann ein Werkzeug wählen und in die Karte klicken. Flächen mit Klick auf den ersten Punkt schließen, Strecken per Doppelklick beenden.</p>
+    </div>
+
+    <div class="results">
+      <h2><span>Ergebnisse</span></h2>
+      <div id="list"></div>
+      <div class="empty" id="emptyState">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6-4 6 4 6-3v13l-6 3-6-4-6 4z"/></svg>
+        Noch keine Messungen.<br>Werkzeug wählen und auf dem Dach zeichnen.
+      </div>
+      <div class="total" id="total" style="display:none">
+        <div class="lbl">Gesamte gemessene Dachfläche</div>
+        <div class="val" id="totalVal">0 m²</div>
+      </div>
+      <div class="export" id="exportRow" style="display:none">
+        <button id="btnGeojson">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          GeoJSON
+        </button>
+        <button id="btnCsv">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          CSV
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <div id="map"></div>
+
+    <div class="map-ctrl" id="mapCtrl">
+      <label>Deckkraft Orthofoto <span id="opVal">100%</span></label>
+      <input type="range" id="opacity" min="0" max="100" value="100">
+      <div class="row"><input type="checkbox" id="baseToggle" checked><label style="margin:0;text-transform:none;letter-spacing:0;color:var(--text);font-size:12.5px">Hintergrundkarte (OpenStreetMap)</label></div>
+    </div>
+
+    <button class="reload-btn" id="reloadBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/></svg>
+      Andere Datei laden
+    </button>
+
+    <div class="drop" id="drop">
+      <div class="dz" id="dz">
+        <div class="icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 9l5-5 5 5M12 4v12"/></svg>
+        </div>
+        <h1>GeoTIFF hierher ziehen</h1>
+        <p>Ziehen Sie Ihr Orthofoto (.tif / .tiff aus WebODM) in dieses Fenster – oder wählen Sie es manuell aus. Es bleibt vollständig auf Ihrem Gerät.</p>
+        <button class="cta" id="pickBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          Datei auswählen
+        </button>
+        <input type="file" id="fileInput" accept=".tif,.tiff,image/tiff" hidden>
+        <div class="url-row">
+          <input type="text" id="urlInput" placeholder="…oder direkte URL zur GeoTIFF (optional)">
+          <button id="urlBtn">Laden</button>
+        </div>
+        <div class="sub">Unterstützt RGB-Orthofotos und COG · Größe je nach Gerät bis ~mehrere&nbsp;100&nbsp;MB · <b>nichts wird hochgeladen</b></div>
+      </div>
+    </div>
+
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <p id="loadingText">GeoTIFF wird gelesen …</p>
+      <div class="err" id="errText" style="display:none"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Bibliotheken -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script src="https://unpkg.com/georaster"></script>
+<script src="https://unpkg.com/georaster-layer-for-leaflet/dist/georaster-layer-for-leaflet.min.js"></script>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+<script>
+(function(){
+// ---------- Sicherstellen, dass alle Bibliotheken geladen wurden ----------
+const _missing=[];
+if(typeof L==='undefined') _missing.push('Leaflet');
+if(typeof parseGeoraster==='undefined') _missing.push('georaster');
+if(typeof GeoRasterLayer==='undefined') _missing.push('georaster-layer-for-leaflet');
+if(typeof turf==='undefined') _missing.push('Turf');
+if(_missing.length){
+  const l=document.getElementById('loading'); l.classList.add('show');
+  document.querySelector('.spinner').style.display='none';
+  document.getElementById('loadingText').style.display='none';
+  const e=document.getElementById('errText'); e.style.display='block';
+  e.innerHTML='Die Karten-Bibliotheken konnten nicht geladen werden ('+_missing.join(', ')+').<br><br>'+
+    'In der Vorschau im Chat ist das normal (externe Skripte werden blockiert). Auf GitHub&nbsp;Pages '+
+    'oder beim direkten Öffnen im Browser funktioniert es. Andernfalls bitte die Internetverbindung prüfen.';
+  return;
+}
+
+// ---------- Marker-Icons (sonst kaputte Standard-Pins bei CDN-Leaflet) ----------
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png'
+});
+
+// ---------- Deutsche Tooltips für Leaflet.Draw ----------
+const dl = L.drawLocal.draw.handlers;
+dl.polygon.tooltip.start = 'Klicken, um die Fläche zu beginnen';
+dl.polygon.tooltip.cont  = 'Klicken, um weitere Eckpunkte zu setzen';
+dl.polygon.tooltip.end   = 'Auf den ersten Punkt klicken, um die Fläche zu schließen';
+dl.polyline.tooltip.start = 'Klicken, um die Strecke zu beginnen';
+dl.polyline.tooltip.cont  = 'Klicken, um die Strecke fortzusetzen';
+dl.polyline.tooltip.end   = 'Letzten Punkt klicken oder Doppelklick zum Beenden';
+dl.marker.tooltip.start   = 'Auf die Karte klicken, um einen Punkt zu setzen';
+
+// ---------- Karte ----------
+const map = L.map('map', {zoomControl:true, attributionControl:true}).setView([49.96, 8.83], 6);
+const baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom:22, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'
+}).addTo(map);
+
+const drawnItems = new L.FeatureGroup().addTo(map);
+let rasterLayer = null;
+
+// ---------- Hilfsfunktionen Formatierung ----------
+const nf  = (v,d=1)=>v.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
+const nf0 = v=>v.toLocaleString('de-DE',{maximumFractionDigits:0});
+function fmtArea(m2){
+  if(m2>=10000) return nf(m2/10000,2)+' ha';
+  return nf(m2,1)+' m²';
+}
+function fmtAreaFull(m2){
+  if(m2>=10000) return nf(m2/10000,2)+' ha · '+nf0(m2)+' m²';
+  return nf(m2,1)+' m²';
+}
+function fmtLen(m){
+  if(m>=1000) return nf(m/1000,2)+' km';
+  return nf(m,1)+' m';
+}
+function fmtCoord(ll){
+  return ll.lat.toFixed(6)+', '+ll.lng.toFixed(6);
+}
+
+// ---------- Mess-Verwaltung ----------
+let features = [];          // {id, kind, label, value, valueText, layer}
+let counters = {area:0, line:0, point:0};
+const colors = {area:'var(--accent)', line:'var(--blue)', point:'var(--green)'};
+
+function polygonAreaM2(layer){
+  return turf.area(layer.toGeoJSON());
+}
+function polygonPerimeterM(layer){
+  let ring = layer.getLatLngs()[0].map(p=>[p.lng,p.lat]);
+  if(ring.length) ring.push(ring[0]);
+  return turf.length(turf.lineString(ring),{units:'kilometers'})*1000;
+}
+function lineLengthM(layer){
+  const coords = layer.getLatLngs().map(p=>[p.lng,p.lat]);
+  return turf.length(turf.lineString(coords),{units:'kilometers'})*1000;
+}
+
+function addFeature(layer, kind){
+  drawnItems.addLayer(layer);
+  counters[kind]++;
+  const id = kind+'-'+counters[kind];
+  let value=0, valueText='', label='';
+
+  if(kind==='area'){
+    value = polygonAreaM2(layer);
+    const per = polygonPerimeterM(layer);
+    label = 'Fläche '+counters.area;
+    valueText = fmtAreaFull(value);
+    layer.setStyle({color:'#ff7a18', weight:2.5, fillColor:'#ff7a18', fillOpacity:.22});
+    layer.bindTooltip(fmtArea(value), {permanent:true, direction:'center', className:'measure-label area'});
+    layer.bindPopup('<b>'+label+'</b><br>Fläche: '+fmtAreaFull(value)+'<br>Umfang: '+fmtLen(per));
+  } else if(kind==='line'){
+    value = lineLengthM(layer);
+    label = 'Strecke '+counters.line;
+    valueText = fmtLen(value);
+    layer.setStyle({color:'#3fb6f5', weight:3, dashArray:'6 5'});
+    const mid = layer.getLatLngs()[Math.floor(layer.getLatLngs().length/2)];
+    layer.bindTooltip(fmtLen(value), {permanent:true, direction:'top', className:'measure-label line'});
+    layer.bindPopup('<b>'+label+'</b><br>Länge: '+fmtLen(value));
+  } else {
+    const ll = layer.getLatLng();
+    value = 0;
+    label = 'Punkt '+counters.point;
+    valueText = fmtCoord(ll);
+    layer.bindTooltip(label, {permanent:true, direction:'top', className:'measure-label point'});
+    layer.bindPopup('<b>'+label+'</b><br>'+fmtCoord(ll));
+  }
+
+  features.push({id, kind, label, value, valueText, layer});
+  renderList();
+}
+
+function removeFeature(id){
+  const i = features.findIndex(f=>f.id===id);
+  if(i<0) return;
+  drawnItems.removeLayer(features[i].layer);
+  features.splice(i,1);
+  renderList();
+}
+
+function renderList(){
+  const list = document.getElementById('list');
+  list.innerHTML='';
+  features.forEach(f=>{
+    const row = document.createElement('div');
+    row.className='item';
+    row.innerHTML =
+      '<span class="swatch" style="background:'+colors[f.kind]+'"></span>'+
+      '<div class="meta"><div class="lbl">'+f.label+'</div><div class="val">'+f.valueText+'</div></div>'+
+      '<button class="del" title="Löschen" aria-label="Löschen">'+
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>'+
+      '</button>';
+    row.querySelector('.del').onclick = ()=>removeFeature(f.id);
+    row.querySelector('.meta').onclick = ()=>{ f.layer.openPopup ? f.layer.openPopup() : null; if(f.layer.getBounds) map.fitBounds(f.layer.getBounds(),{maxZoom:21,padding:[40,40]}); };
+    list.appendChild(row);
+  });
+
+  const totalArea = features.filter(f=>f.kind==='area').reduce((s,f)=>s+f.value,0);
+  const hasAreas = features.some(f=>f.kind==='area');
+  document.getElementById('total').style.display = hasAreas?'block':'none';
+  document.getElementById('totalVal').textContent = fmtAreaFull(totalArea);
+  document.getElementById('emptyState').style.display = features.length?'none':'block';
+  document.getElementById('exportRow').style.display = features.length?'flex':'none';
+  document.getElementById('btnClear').disabled = !features.length;
+  document.getElementById('btnUndo').disabled = !features.length;
+}
+
+// ---------- Zeichen-Werkzeuge ----------
+let activeHandler = null;
+const toolBtns = {area:document.getElementById('btnArea'), line:document.getElementById('btnLine'), point:document.getElementById('btnPoint')};
+
+function setActive(kind){
+  Object.values(toolBtns).forEach(b=>b.classList.remove('active'));
+  if(kind) toolBtns[kind].classList.add('active');
+}
+function startDraw(kind){
+  if(activeHandler){ activeHandler.disable(); activeHandler=null; }
+  setActive(kind);
+  if(kind==='area'){
+    activeHandler = new L.Draw.Polygon(map, {allowIntersection:false, showArea:false,
+      shapeOptions:{color:'#ff7a18', weight:2.5}});
+  } else if(kind==='line'){
+    activeHandler = new L.Draw.Polyline(map, {shapeOptions:{color:'#3fb6f5', weight:3}});
+  } else {
+    activeHandler = new L.Draw.Marker(map, {});
+  }
+  activeHandler.enable();
+}
+
+document.getElementById('btnArea').onclick  = ()=>startDraw('area');
+document.getElementById('btnLine').onclick  = ()=>startDraw('line');
+document.getElementById('btnPoint').onclick = ()=>startDraw('point');
+
+map.on(L.Draw.Event.CREATED, e=>{
+  const kind = e.layerType==='polygon'?'area':e.layerType==='polyline'?'line':'point';
+  addFeature(e.layer, kind);
+  setActive(null);
+  activeHandler=null;
+});
+map.on(L.Draw.Event.DRAWSTOP, ()=>{ setActive(null); });
+
+document.getElementById('btnUndo').onclick = ()=>{ if(features.length) removeFeature(features[features.length-1].id); };
+document.getElementById('btnClear').onclick = ()=>{
+  if(!features.length) return;
+  if(confirm('Wirklich alle Messungen löschen?')){ drawnItems.clearLayers(); features=[]; counters={area:0,line:0,point:0}; renderList(); }
+};
+
+// ---------- Export ----------
+function download(name, content, type){
+  const blob = new Blob([content], {type});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+document.getElementById('btnGeojson').onclick = ()=>{
+  const fc = {type:'FeatureCollection', features: features.map(f=>{
+    const gj = f.layer.toGeoJSON();
+    gj.properties = {label:f.label, typ:f.kind,
+      flaeche_m2: f.kind==='area'? Math.round(f.value*10)/10 : undefined,
+      laenge_m:   f.kind==='line'? Math.round(f.value*10)/10 : undefined};
+    return gj;
+  })};
+  download('dachvermessung.geojson', JSON.stringify(fc,null,2), 'application/geo+json');
+};
+document.getElementById('btnCsv').onclick = ()=>{
+  let csv = 'Bezeichnung;Typ;Wert;Einheit\n';
+  features.forEach(f=>{
+    if(f.kind==='area') csv += f.label+';Fläche;'+nf(f.value,1)+';m²\n';
+    else if(f.kind==='line') csv += f.label+';Strecke;'+nf(f.value,1)+';m\n';
+    else csv += f.label+';Punkt;"'+f.valueText+'";Koordinaten\n';
+  });
+  const tot = features.filter(f=>f.kind==='area').reduce((s,f)=>s+f.value,0);
+  csv += 'GESAMT;Dachfläche;'+nf(tot,1)+';m²\n';
+  download('dachvermessung.csv', '\uFEFF'+csv, 'text/csv');
+};
+
+// ---------- Karten-Steuerung ----------
+const opSlider = document.getElementById('opacity');
+opSlider.oninput = ()=>{
+  const v = opSlider.value/100;
+  document.getElementById('opVal').textContent = opSlider.value+'%';
+  if(rasterLayer) rasterLayer.setOpacity(v);
+};
+document.getElementById('baseToggle').onchange = e=>{
+  if(e.target.checked) baseLayer.addTo(map); else map.removeLayer(baseLayer);
+};
+
+// ---------- GeoTIFF laden ----------
+const drop = document.getElementById('drop');
+const loading = document.getElementById('loading');
+const fileInput = document.getElementById('fileInput');
+
+function showLoading(text){ loading.classList.add('show'); document.getElementById('loadingText').textContent=text||'GeoTIFF wird gelesen …'; document.getElementById('errText').style.display='none'; }
+function hideLoading(){ loading.classList.remove('show'); }
+function showError(msg){
+  loading.classList.add('show');
+  document.querySelector('.spinner').style.display='none';
+  document.getElementById('loadingText').style.display='none';
+  const e=document.getElementById('errText'); e.style.display='block';
+  e.innerHTML = msg + '<br><br><button class="cta" style="margin-top:4px" onclick="location.reload()">Neu starten</button>';
+}
+
+document.getElementById('pickBtn').onclick = ()=>fileInput.click();
+document.getElementById('reloadBtn').onclick = ()=>fileInput.click();
+fileInput.onchange = e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); };
+
+document.getElementById('urlBtn').onclick = ()=>{
+  const url = document.getElementById('urlInput').value.trim();
+  if(!url) return;
+  showLoading('GeoTIFF wird geladen …');
+  fetch(url).then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.arrayBuffer(); })
+    .then(renderRaster)
+    .catch(err=>showError('Konnte die URL nicht laden ('+err.message+').<br>Hinweis: Der Server muss CORS erlauben. Am sichersten ist es, die Datei lokal auszuwählen.'));
+};
+
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev, e=>{e.preventDefault(); drop.classList.add('dragover');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev, e=>{e.preventDefault(); drop.classList.remove('dragover');}));
+drop.addEventListener('drop', e=>{ const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
+// auch Drag auf die Karte (wenn schon eine Datei geladen ist)
+document.getElementById('map').addEventListener('dragover', e=>e.preventDefault());
+document.getElementById('map').addEventListener('drop', e=>{ e.preventDefault(); const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
+
+async function handleFile(file){
+  if(!/\.tiff?$/i.test(file.name) && file.type!=='image/tiff'){
+    showError('Bitte eine GeoTIFF-Datei (.tif oder .tiff) auswählen.<br>Diese Datei: <b>'+file.name+'</b>');
+    return;
+  }
+  showLoading('GeoTIFF wird gelesen … ('+ (file.size/1048576).toFixed(0) +' MB)');
+  try{
+    const buf = await file.arrayBuffer();
+    await renderRaster(buf);
+  }catch(err){
+    showError('Datei konnte nicht gelesen werden.<br>'+(err.message||err));
+  }
+}
+
+async function renderRaster(arrayBuffer){
+  try{
+    const georaster = await parseGeoraster(arrayBuffer);
+    const noData = georaster.noDataValue;
+
+    if(rasterLayer){ map.removeLayer(rasterLayer); rasterLayer=null; }
+
+    rasterLayer = new GeoRasterLayer({
+      georaster,
+      resolution: 256,
+      opacity: opSlider.value/100,
+      pixelValuesToColorFn: values=>{
+        if(!values || values.length===0) return null;
+        let r,g,b,a;
+        if(values.length>=3){ r=values[0]; g=values[1]; b=values[2]; a=values.length>=4?values[3]:255; }
+        else { const v=values[0]; r=g=b=v; a=255; }
+        if(a===0) return null;
+        if([r,g,b].some(x=>x==null||Number.isNaN(x))) return null;
+        if(noData!=null && r===noData && g===noData && b===noData) return null;
+        return 'rgba('+r+','+g+','+b+','+(a/255)+')';
+      }
+    });
+    rasterLayer.addTo(map);
+    rasterLayer.bringToFront ? rasterLayer.bringToFront() : null;
+    drawnItems.bringToFront();
+
+    const b = rasterLayer.getBounds();
+    map.fitBounds(b, {padding:[20,20]});
+
+    // UI freischalten
+    drop.classList.add('hidden');
+    hideLoading();
+    document.querySelector('.spinner').style.display='block';
+    document.getElementById('loadingText').style.display='block';
+    document.getElementById('mapCtrl').classList.add('show');
+    document.getElementById('reloadBtn').classList.add('show');
+    document.getElementById('btnArea').disabled=false;
+    document.getElementById('btnLine').disabled=false;
+    document.getElementById('btnPoint').disabled=false;
+    document.getElementById('hint').innerHTML='Werkzeug wählen und auf das Dach klicken. Fläche schließen: auf den ersten Punkt klicken. Strecke beenden: Doppelklick. Auf eine Messung in der Liste klicken, um sie auf der Karte zu finden.';
+  }catch(err){
+    showError('Das ist keine gültige bzw. unterstützte GeoTIFF.<br><small>'+(err.message||err)+'</small>');
+  }
+}
+})();
+</script>
+</body>
+</html>

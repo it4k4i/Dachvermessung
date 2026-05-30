@@ -127,17 +127,29 @@ gdal_translate odm_orthophoto.tif ortho_cog.tif -of COG -co COMPRESS=DEFLATE
 
 Funktioniert sowohl mit GitHub Pages als auch mit GitLab Pages.
 
-Standardmäßig lädt `index.html` Leaflet, Leaflet.draw, georaster, georaster-layer-for-leaflet
-und Turf von einem CDN. Damit die Seite **keine externen Abhängigkeiten** hat (robuster und
-auch offline lauffähig, abgesehen von den OSM-Kacheln), einmalig lokal ausführen:
+Standardmäßig lädt `index.html` Leaflet, Leaflet.draw, georaster, georaster-layer-for-leaflet,
+html2canvas und jsPDF von einem CDN. Damit die Seite (bis auf die optionale Straßenkarte)
+**keine externen Abhängigkeiten** hat, einmalig lokal ausführen:
 
 ```bash
-bash vendor.sh
+bash vendor.sh          # Bibliotheken nach lib/ holen und Pfade lokalisieren
+bash vendor-fonts.sh    # (optional) Schriften lokal einbinden – siehe unten
 ```
 
-Das Skript lädt alle Bibliotheken nach `lib/` herunter, holt die nötigen Marker-/Icon-Bilder
+`vendor.sh` lädt alle Bibliotheken nach `lib/` herunter, holt die nötigen Marker-/Icon-Bilder
 und stellt die Pfade in `index.html` auf lokal um (ein Backup wird als `index.html.bak`
 abgelegt). Danach `lib/` und `index.html` mit committen.
+
+### Schriften lokal einbinden (empfohlen, DSGVO)
+
+`vendor.sh` lokalisiert nur die Programmbibliotheken – **nicht** die Schriften. Die mitgelieferte
+`index.html` nutzt daher standardmäßig **System-Schriften** (keine externen Aufrufe). Wer die
+exakte Archivo-/IBM-Plex-Optik möchte, führt zusätzlich `bash vendor-fonts.sh` aus: das holt die
+Schriften nach `lib/fonts/`, schreibt `lib/fonts.css` und bindet sie in `index.html` ein.
+
+Hintergrund: Das direkte Einbinden von Google Fonts überträgt die IP-Adresse der Besucher an
+Google und ist in Deutschland abmahnungsrelevant (vgl. LG München I, Urt. v. 20.01.2022). Mit
+lokalen Schriften (oder System-Schriften) entfällt dieser Aufruf vollständig.
 
 ## Technik
 

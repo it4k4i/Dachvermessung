@@ -868,10 +868,54 @@ async function handleFile(file){
   }
 }
 
+// ---------- Kontrast-Stretch (für 16-Bit / Float-Daten) ----------
+function percentile(sorted, p){
+  if(!sorted.length) return 0;
+  const i = Math.min(sorted.length-1, Math.max(0, Math.round((p/100)*(sorted.length-1))));
+  return sorted[i];
+}
+function computeStretch(gr){
+  const n = gr.numberOfRasters || 1;
+  const los = new Array(n).fill(0), his = new Array(n).fill(255);
+  let needs = false;
+  const vals = gr.values;
+  for(let b=0;b<n;b++){
+    let lo=0, hi=255;
+    if(vals && vals[b]){
+      const grid = vals[b], rows = grid.length, rstep = Math.max(1, Math.floor(rows/250));
+      const s = [];
+      for(let y=0;y<rows;y+=rstep){
+        const row = grid[y]; if(!row) continue;
+        const cstep = Math.max(1, Math.floor(row.length/250));
+        for(let x=0;x<row.length;x+=cstep){
+          const v = row[x];
+          if(v==null || Number.isNaN(v)) continue;
+          if(gr.noDataValue!=null && v===gr.noDataValue) continue;
+          if(v<=0) continue;                 // Nullrand für den Stretch ignorieren
+          s.push(v);
+        }
+      }
+      if(s.length){ s.sort((a,b)=>a-b); lo = percentile(s,2); hi = percentile(s,98); }
+    } else if(gr.maxs && gr.maxs[b]!=null){
+      lo = (gr.mins && gr.mins[b]!=null) ? gr.mins[b] : 0; hi = gr.maxs[b];
+    }
+    if(hi > 255) needs = true;
+    los[b]=lo; his[b]=hi;
+  }
+  if(!needs){ for(let b=0;b<n;b++){ los[b]=0; his[b]=255; } }   // 8-Bit unverändert lassen
+  return {los, his, needs};
+}
+
 async function renderRaster(arrayBuffer){
   try{
     const georaster = await parseGeoraster(arrayBuffer);
     const noData = georaster.noDataValue;
+    const ST = computeStretch(georaster);
+    const sc = (v, b) => {
+      const lo = ST.los[b], d = (ST.his[b]-lo) || 1;
+      let o = Math.round((v-lo)/d*255);
+      return o<0?0:o>255?255:o;
+    };
 
     if(rasterLayer){ map.removeLayer(rasterLayer); rasterLayer=null; }
 
@@ -883,16 +927,19 @@ async function renderRaster(arrayBuffer){
         if(!values || values.length===0) return null;
         let r,g,b,a;
         if(values.length>=3){ r=values[0]; g=values[1]; b=values[2]; a=values.length>=4?values[3]:255; }
-        else { const v=values[0]; r=g=b=v; a=255; }
-        if(a===0) return null;
+        else { const v=values[0]; r=g=b=v; a=values.length>=2?values[1]:255; }
         if([r,g,b].some(x=>x==null||Number.isNaN(x))) return null;
+        if(a===0) return null;                                   // Alpha = transparent
         if(noData!=null && r===noData && g===noData && b===noData) return null;
-        return 'rgba('+r+','+g+','+b+','+(a/255)+')';
+        if(r===0 && g===0 && b===0) return null;                 // schwarzer Nodata-Rand -> transparent
+        const R = sc(r, 0), G = sc(g, values.length>=3?1:0), B = sc(b, values.length>=3?2:0);
+        return 'rgba('+R+','+G+','+B+','+(a>255?1:a/255)+')';
       }
     });
     rasterLayer.addTo(map);
     rasterLayer.bringToFront ? rasterLayer.bringToFront() : null;
     drawnItems.bringToFront();
+    if(ST.needs) showToast('16-Bit-Orthofoto erkannt – Kontrast für die Anzeige automatisch angepasst.');
 
     const b = rasterLayer.getBounds();
     map.fitBounds(b, {padding:[20,20]});

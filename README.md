@@ -158,7 +158,7 @@ CDN-freie Variante zu erzeugen, die Datei nach `index.html` kopieren und das Skr
 ```bash
 cp cdn_index.html index.html   # nur falls noch keine lokale index.html existiert
 bash vendor.sh                 # Bibliotheken nach lib/ holen und Pfade lokalisieren
-bash vendor-fonts.sh           # (optional) Schriften lokal einbinden – siehe unten
+bash vendor.sh --fonts         # (optional) zusätzlich Schriften lokal einbinden – siehe unten
 ```
 
 `vendor.sh` lädt alle Bibliotheken nach `lib/` herunter, holt die nötigen Marker-/Icon-Bilder
@@ -170,8 +170,9 @@ nur noch Dateien von deiner eigenen Domain (bis auf die optionale Straßenkarte)
 
 `vendor.sh` lokalisiert nur die Programmbibliotheken – **nicht** die Schriften. Die mitgelieferte
 `index.html` nutzt daher standardmäßig **System-Schriften** (keine externen Aufrufe). Wer die
-exakte Archivo-/IBM-Plex-Optik möchte, führt zusätzlich `bash vendor-fonts.sh` aus: das holt die
+exakte Archivo-/IBM-Plex-Optik möchte, führt einmal `bash vendor.sh --fonts` aus: das holt die
 Schriften nach `lib/fonts/`, schreibt `lib/fonts.css` und bindet sie in `index.html` ein.
+(Das Schriften-Holen ist in `vendor.sh` integriert; ein separates `vendor-fonts.sh` gibt es nicht mehr.)
 
 Hintergrund: Das direkte Einbinden von Google Fonts überträgt die IP-Adresse der Besucher an
 Google und ist in Deutschland abmahnungsrelevant (vgl. LG München I, Urt. v. 20.01.2022). Mit

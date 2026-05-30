@@ -191,6 +191,9 @@
   .map-ctrl input[type=range]{width:100%;accent-color:var(--accent)}
   .map-ctrl .row{display:flex;align-items:center;gap:8px;margin-top:11px;font-size:12.5px;color:var(--text)}
   .map-ctrl .row input{accent-color:var(--accent)}
+  .base-select{width:100%;margin-top:9px;background:var(--panel-2);color:var(--text);
+    border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-family:inherit;font-size:12.5px}
+  .base-select:disabled{opacity:.45}
 
   .reload-btn{position:absolute;right:14px;top:14px;z-index:1000;display:none;
     align-items:center;gap:8px;background:var(--ctrl-bg);backdrop-filter:blur(8px);
@@ -353,6 +356,10 @@
       <label>Deckkraft Orthofoto <span id="opVal">100%</span></label>
       <input type="range" id="opacity" min="0" max="100" value="100">
       <div class="row"><input type="checkbox" id="baseToggle"><label style="margin:0;text-transform:none;letter-spacing:0;color:var(--text);font-size:12.5px">Hintergrundkarte einblenden</label></div>
+      <select id="baseSelect" class="base-select" disabled>
+        <option value="carto">Straßenkarte (CARTO)</option>
+        <option value="dop_he">Luftbild Hessen (DOP20, amtlich)</option>
+      </select>
     </div>
 
     <button class="reload-btn" id="reloadBtn">
@@ -444,13 +451,29 @@ document.getElementById('themeToggle').addEventListener('click', function(){
 
 // ---------- Karte ----------
 const map = L.map('map', {zoomControl:true, attributionControl:true}).setView([49.96, 8.83], 6);
-// Hintergrundkarte: standardmäßig AUS (Dachvermessung erfolgt auf dem Orthofoto).
-// Bei Bedarf einblendbar; CARTO als Anbieter (toleranter als die OSM-Server, kein Referer-Block).
-const baseLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-  maxZoom:22, maxNativeZoom:20, subdomains:'abcd',
-  attribution:'&copy; OpenStreetMap &copy; CARTO', crossOrigin:true
-});
-// (OSM-Direktkacheln werden auf manchen Hosts blockiert und sind daher nicht voreingestellt.)
+
+// Hintergrundkarten (standardmäßig AUS; Dachvermessung erfolgt auf dem Orthofoto).
+const basemaps = {
+  carto: L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    maxZoom:22, maxNativeZoom:20, subdomains:'abcd',
+    attribution:'&copy; OpenStreetMap &copy; CARTO', crossOrigin:true
+  }),
+  // Amtliches Luftbild Hessen (DOP20, 20 cm) – kostenfrei & kommerziell nutzbar, dl-zero-de/2.0
+  dop_he: L.tileLayer.wms('https://www.gds-srv.hessen.de/cgi-bin/lika-services/de-viewer/access/ogc-free-images.ows?', {
+    layers:'he_dop20_rgb', format:'image/png', transparent:false, version:'1.3.0',
+    maxZoom:22, maxNativeZoom:20,
+    attribution:'Geobasisdaten © HVBG (DOP20, dl-zero-de/2.0)', crossOrigin:true
+  })
+};
+let currentBasemapKey = 'carto';
+let baseLayer = basemaps.carto;            // Kompatibilität: verweist auf die aktive Ebene
+function isBasemapOn(){ return map.hasLayer(basemaps[currentBasemapKey]); }
+function applyBasemap(){
+  Object.values(basemaps).forEach(l=>{ if(map.hasLayer(l)) map.removeLayer(l); });
+  const on = document.getElementById('baseToggle').checked;
+  baseLayer = basemaps[currentBasemapKey];
+  if(on){ baseLayer.addTo(map); baseLayer.bringToBack(); }
+}
 
 const drawnItems = new L.FeatureGroup().addTo(map);
 let rasterLayer = null;
@@ -664,7 +687,7 @@ function saveProject(){
     created:new Date().toISOString(),
     raster:{name: currentRasterName||null},
     view:{center:[map.getCenter().lat, map.getCenter().lng], zoom:map.getZoom()},
-    ui:{opacity:Number(opSlider.value), basemap: map.hasLayer(baseLayer)},
+    ui:{opacity:Number(opSlider.value), basemap: isBasemapOn(), basemapKey: currentBasemapKey},
     counters:{area:counters.area, line:counters.line, point:counters.point},
     features: features.map(f=>{ const gj=f.layer.toGeoJSON(); gj.properties={kind:f.kind, label:f.label}; return gj; })
   };
@@ -702,8 +725,9 @@ async function loadProject(file){
 
   if(data.ui){
     if(typeof data.ui.opacity==='number'){ opSlider.value=data.ui.opacity; opSlider.oninput(); }
+    if(data.ui.basemapKey && basemaps[data.ui.basemapKey]){ currentBasemapKey=data.ui.basemapKey; baseSelect.value=currentBasemapKey; }
     if(typeof data.ui.basemap==='boolean'){ document.getElementById('baseToggle').checked=data.ui.basemap;
-      if(data.ui.basemap){ if(!map.hasLayer(baseLayer)) baseLayer.addTo(map); } else { map.removeLayer(baseLayer); } }
+      baseSelect.disabled=!data.ui.basemap; applyBasemap(); }
   }
   renderList();
 
@@ -724,19 +748,21 @@ function exportError(e){
 }
 async function captureMapCanvas(){
   if(typeof html2canvas==='undefined') throw new Error('html2canvas wurde nicht geladen');
-  const hadBase = map.hasLayer(baseLayer);
-  if(hadBase) map.removeLayer(baseLayer);             // OSM-Kacheln sind cross-origin -> für sauberen Export entfernen
+  // Aktive Hintergrundkarte für den Export entfernen (Kachelserver liefern teils kein CORS;
+  // das würde den Canvas-Export "vergiften"). Das Orthofoto + Einzeichnungen kommen sauber durch.
+  const activeBase = isBasemapOn() ? basemaps[currentBasemapKey] : null;
+  if(activeBase) map.removeLayer(activeBase);
   const cc = document.querySelector('.leaflet-control-container');
   const prev = cc ? cc.style.display : '';
   if(cc) cc.style.display='none';
-  await new Promise(r=>setTimeout(r, 300));           // Render kurz setzen lassen
+  await new Promise(r=>setTimeout(r, 300));
   try{
     return await html2canvas(document.getElementById('map'), {
       useCORS:true, allowTaint:false, backgroundColor:'#ffffff', scale:2, logging:false
     });
   } finally {
     if(cc) cc.style.display=prev;
-    if(hadBase) baseLayer.addTo(map);
+    if(activeBase){ activeBase.addTo(map); activeBase.bringToBack(); }
   }
 }
 async function exportPNG(){
@@ -818,8 +844,14 @@ opSlider.oninput = ()=>{
   document.getElementById('opVal').textContent = opSlider.value+'%';
   if(rasterLayer) rasterLayer.setOpacity(v);
 };
+const baseSelect = document.getElementById('baseSelect');
 document.getElementById('baseToggle').onchange = e=>{
-  if(e.target.checked) baseLayer.addTo(map); else map.removeLayer(baseLayer);
+  baseSelect.disabled = !e.target.checked;
+  applyBasemap();
+};
+baseSelect.onchange = e=>{
+  currentBasemapKey = e.target.value;
+  applyBasemap();
 };
 
 // ---------- GeoTIFF laden ----------

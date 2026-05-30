@@ -66,6 +66,23 @@ Für eine eigene (Sub-)Domain – z. B. `vermessung.bahl-netz.de`:
 - **GeoJSON / CSV:** Reine Messdaten für die Weiterverarbeitung in GIS bzw. Tabellen.
 - **Hell-/Dunkelmodus:** Umschalter oben rechts; Startwert nach System-Einstellung.
 
+### Hintergrundkarten
+
+Die Hintergrundkarte ist standardmäßig **aus** (gemessen wird auf dem Orthofoto). Bei Bedarf
+einblendbar, mit Auswahl der Quelle:
+
+- **Straßenkarte (CARTO):** auf OpenStreetMap-Daten basierend, kostenlos nutzbar.
+- **Luftbild Hessen (DOP20):** amtliche Digitale Orthophotos der Hessischen Verwaltung für
+  Bodenmanagement und Geoinformation, 20 cm Auflösung. Abruf kostenfrei (§ 24 HVGG), Lizenz
+  *Datenlizenz Deutschland – Zero – 2.0* (dl-zero-de/2.0) – **auch kommerziell uneingeschränkt
+  nutzbar**. Ideal als Kontext für PV-Planung in Hessen.
+
+Hinweis zur kommerziellen Nutzung: Esri „World Imagery" und Google-Kacheln sind für den
+gewerblichen Direktabruf **nicht** ohne Lizenz freigegeben und daher bewusst nicht enthalten.
+Liegen deine Projekte außerhalb Hessens, bietet praktisch jedes Bundesland einen eigenen,
+kostenfreien DOP-WMS an (z. B. Bayern, NRW, BW) – diese lassen sich analog als weitere Quelle
+ergänzen.
+
 ## Unterstützte Dateien
 
 - Standard-GeoTIFF und **Cloud Optimized GeoTIFF (COG)**, RGB- und RGBA-Orthofotos.

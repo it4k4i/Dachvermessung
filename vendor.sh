@@ -43,6 +43,7 @@ DL "https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"     
 DL "https://unpkg.com/georaster-layer-for-leaflet/dist/georaster-layer-for-leaflet.min.js" "lib/georaster-layer.js"
 DL "https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"                       "lib/html2canvas.js"
 DL "https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"                                "lib/jspdf.js"
+DL "https://geographiclib.sourceforge.io/scripts/geographiclib-geodesic.min.js"        "lib/geographiclib.js"
 
 echo "Lade Bild-Assets (Marker, Icons, Spritesheets) ..."
 # Leaflet
@@ -66,6 +67,7 @@ sed -i \
   -e 's#https://unpkg.com/georaster-layer-for-leaflet/dist/georaster-layer-for-leaflet.min.js#lib/georaster-layer.js#g' \
   -e 's#https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js#lib/html2canvas.js#g' \
   -e 's#https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js#lib/jspdf.js#g' \
+  -e 's#https://geographiclib.sourceforge.io/scripts/geographiclib-geodesic.min.js#lib/geographiclib.js#g' \
   -e 's#"https://unpkg.com/georaster"#"lib/georaster.js"#g' \
   index.html
 

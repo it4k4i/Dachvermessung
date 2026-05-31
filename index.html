@@ -510,6 +510,7 @@
 <script src="lib/georaster-layer.js"></script>
 <script src="lib/html2canvas.js"></script>
 <script src="lib/jspdf.js"></script>
+<script src="lib/geographiclib.js"></script>
 
 <script>
 (function(){
@@ -644,28 +645,75 @@ function _ringLatLngs(layer){
   while(Array.isArray(r) && r.length && Array.isArray(r[0])) r = r[0];   // erste Ring-Ebene
   return r || [];
 }
-function polygonAreaM2(layer){
-  const ring = _ringLatLngs(layer);
+
+// --- Eigene Methode (Fallback) -------------------------------------------------
+function _areaLocal(ring){
   if(ring.length < 3) return 0;
   const xy = _toLocalMeters(ring);
   let s = 0;
   for(let i=0;i<xy.length;i++){ const aP=xy[i], bP=xy[(i+1)%xy.length]; s += aP.x*bP.y - bP.x*aP.y; }
   return Math.abs(s)/2;
 }
-function _polylineLengthM(latlngs){
+function _lengthLocal(latlngs){
   if(latlngs.length < 2) return 0;
   const xy = _toLocalMeters(latlngs);
   let d = 0;
   for(let i=0;i<xy.length-1;i++){ const dx=xy[i+1].x-xy[i].x, dy=xy[i+1].y-xy[i].y; d += Math.hypot(dx,dy); }
   return d;
 }
+
+// --- Primär: GeographicLib (geodätisch exakt, Karney). Fällt auf die eigene -----
+//     Methode zurück, falls die Bibliothek nicht geladen ist. ---------------------
+function _geod(){
+  try{
+    // neuer Split-Port exportiert global 'geodesic', älteres Paket 'GeographicLib'
+    if(typeof geodesic!=='undefined' && geodesic.Geodesic && geodesic.Geodesic.WGS84)
+      return geodesic.Geodesic.WGS84;
+    if(typeof GeographicLib!=='undefined' && GeographicLib.Geodesic && GeographicLib.Geodesic.WGS84)
+      return GeographicLib.Geodesic.WGS84;
+  }catch(_){}
+  return null;
+}
+let _geolibWarned=false;
+function _warnFallbackOnce(){
+  if(_geolibWarned) return; _geolibWarned=true;
+  if(typeof showToast==='function') showToast('Hinweis: Präzisions-Bibliothek nicht geladen – es wird die (sehr genaue) interne Berechnung verwendet.');
+}
+function _areaGeodesic(ring){
+  const g=_geod();
+  if(!g){ _warnFallbackOnce(); return _areaLocal(ring); }
+  try{
+    const p=g.Polygon(false);
+    for(const pt of ring) p.AddPoint(pt.lat, pt.lng);
+    const r=p.Compute(false, true);            // signed=true -> Fläche der kleineren Seite
+    if(r && isFinite(r.area)) return Math.abs(r.area);
+  }catch(_){}
+  _warnFallbackOnce(); return _areaLocal(ring);
+}
+function _lengthGeodesic(latlngs){
+  const g=_geod();
+  if(!g){ _warnFallbackOnce(); return _lengthLocal(latlngs); }
+  try{
+    const pl=g.Polygon(true);                  // polyline=true -> nur Länge
+    for(const pt of latlngs) pl.AddPoint(pt.lat, pt.lng);
+    const r=pl.Compute(false, true);
+    if(r && isFinite(r.perimeter)) return r.perimeter;
+  }catch(_){}
+  _warnFallbackOnce(); return _lengthLocal(latlngs);
+}
+
+function polygonAreaM2(layer){
+  const ring = _ringLatLngs(layer);
+  if(ring.length < 3) return 0;
+  return _areaGeodesic(ring);
+}
 function polygonPerimeterM(layer){
   const ring = _ringLatLngs(layer);
   if(ring.length < 2) return 0;
-  return _polylineLengthM(ring.concat([ring[0]]));
+  return _lengthGeodesic(ring.concat([ring[0]]));
 }
 function lineLengthM(layer){
-  return _polylineLengthM(layer.getLatLngs());
+  return _lengthGeodesic(layer.getLatLngs());
 }
 
 // HTML-Escaping gegen XSS (z. B. aus geladenen Projektdateien mit manipulierten Bezeichnungen)

@@ -1026,21 +1026,102 @@ function exportError(e){
 async function captureMapCanvas(){
   if(typeof html2canvas==='undefined') throw new Error('html2canvas wurde nicht geladen');
   // Aktive Hintergrundkarte für den Export entfernen (Kachelserver liefern teils kein CORS;
-  // das würde den Canvas-Export "vergiften"). Das Orthofoto + Einzeichnungen kommen sauber durch.
+  // das würde den Canvas-Export "vergiften"). Das Orthofoto kommt sauber durch.
   const activeBase = isBasemapOn() ? basemaps.carto : null;
   if(activeBase) map.removeLayer(activeBase);
+  // Vektor-/Marker-/Tooltip-Ebenen für die Aufnahme ausblenden: html2canvas positioniert
+  // Leaflets SVG-Overlay nicht deckungsgleich (bekanntes Offset-Problem). Wir nehmen nur das
+  // Rasterbild auf und zeichnen die Einzeichnungen danach selbst pixelgenau darüber.
+  const hidePanes = ['overlayPane','markerPane','tooltipPane','shadowPane','popupPane'];
+  const restore = [];
+  hidePanes.forEach(name=>{
+    const pane = map.getPane && map.getPane(name);
+    if(pane){ restore.push([pane, pane.style.display]); pane.style.display='none'; }
+  });
   const cc = document.querySelector('.leaflet-control-container');
-  const prev = cc ? cc.style.display : '';
+  const prevCC = cc ? cc.style.display : '';
   if(cc) cc.style.display='none';
-  await new Promise(r=>setTimeout(r, 300));
+  await new Promise(r=>setTimeout(r, 250));
+  let raster;
   try{
-    return await html2canvas(document.getElementById('map'), {
+    raster = await html2canvas(document.getElementById('map'), {
       useCORS:true, allowTaint:false, backgroundColor:'#ffffff', scale:2, logging:false
     });
   } finally {
-    if(cc) cc.style.display=prev;
+    restore.forEach(([pane, val])=>{ pane.style.display = val; });
+    if(cc) cc.style.display=prevCC;
     if(activeBase){ activeBase.addTo(map); activeBase.bringToBack(); }
   }
+  // Einzeichnungen selbst aufs aufgenommene Rasterbild zeichnen (pixelgenau).
+  drawOverlaysOnCanvas(raster);
+  return raster;
+}
+
+// Zeichnet alle sichtbaren Messungen mit der Canvas-2D-API exakt aufs Bild.
+// Nutzt Leaflets latLngToContainerPoint -> identische Lage wie auf dem Bildschirm.
+function drawOverlaysOnCanvas(canvas){
+  const mapEl = document.getElementById('map');
+  const sx = canvas.width  / Math.max(1, mapEl.clientWidth);   // html2canvas-Skalierung (=scale)
+  const sy = canvas.height / Math.max(1, mapEl.clientHeight);
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  const COL = {area:'#ff7a18', line:'#3fb6f5', point:'#37d39b'};
+
+  function pt(latlng){ const p = map.latLngToContainerPoint(latlng); return [p.x*sx, p.y*sy]; }
+  function ringOf(layer){ let r=layer.getLatLngs(); while(Array.isArray(r)&&r.length&&Array.isArray(r[0])) r=r[0]; return r||[]; }
+
+  // 1) Flächen + Linien
+  features.forEach(f=>{
+    if(f.visible===false) return;
+    if(f.kind==='area'){
+      const ring=ringOf(f.layer); if(ring.length<3) return;
+      ctx.beginPath();
+      ring.forEach((ll,i)=>{ const [x,y]=pt(ll); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+      ctx.closePath();
+      ctx.fillStyle='rgba(255,122,24,0.22)'; ctx.fill();
+      ctx.lineWidth=2.5*sx; ctx.strokeStyle=COL.area; ctx.stroke();
+    } else if(f.kind==='line'){
+      const pts=f.layer.getLatLngs(); if(pts.length<2) return;
+      ctx.beginPath();
+      pts.forEach((ll,i)=>{ const [x,y]=pt(ll); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+      ctx.setLineDash([6*sx,5*sx]); ctx.lineWidth=3*sx; ctx.strokeStyle=COL.line; ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  });
+
+  // 2) Punkte (kleiner Pin-Kreis)
+  features.forEach(f=>{
+    if(f.visible===false || f.kind!=='point') return;
+    const [x,y]=pt(f.layer.getLatLng());
+    ctx.beginPath(); ctx.arc(x,y,6*sx,0,2*Math.PI);
+    ctx.fillStyle=COL.point; ctx.fill();
+    ctx.lineWidth=2*sx; ctx.strokeStyle='#ffffff'; ctx.stroke();
+  });
+
+  // 3) Beschriftungen (dunkle Pille mit weißer Schrift, wie auf der Karte)
+  ctx.font='600 '+Math.round(12*sx)+'px "IBM Plex Sans","Segoe UI",Roboto,system-ui,sans-serif, Arial, sans-serif';
+  ctx.textBaseline='middle'; ctx.textAlign='left';
+  function label(text, cx, cy, accent){
+    const padX=7*sx, h=20*sx, w=ctx.measureText(text).width+padX*2;
+    let x=cx-w/2, y=cy-h/2;
+    x=Math.max(2, Math.min(canvas.width-w-2, x)); y=Math.max(2, Math.min(canvas.height-h-2, y));
+    ctx.fillStyle='rgba(14,17,22,0.86)';
+    const rr=6*sx;
+    ctx.beginPath();
+    ctx.moveTo(x+rr,y); ctx.arcTo(x+w,y,x+w,y+h,rr); ctx.arcTo(x+w,y+h,x,y+h,rr);
+    ctx.arcTo(x,y+h,x,y,rr); ctx.arcTo(x,y,x+w,y,rr); ctx.closePath(); ctx.fill();
+    ctx.fillStyle=accent; ctx.fillRect(x,y+3*sx,3*sx,h-6*sx);   // Akzentstreifen links
+    ctx.fillStyle='#ffffff'; ctx.fillText(text, x+padX, y+h/2);
+  }
+  function centroid(ring){ let x=0,y=0; ring.forEach(ll=>{const[px,py]=pt(ll);x+=px;y+=py;}); return [x/ring.length, y/ring.length]; }
+  features.forEach(f=>{
+    if(f.visible===false) return;
+    if(f.kind==='area'){ const ring=ringOf(f.layer); if(ring.length<3) return; const [cx,cy]=centroid(ring); label(fmtArea(f.value), cx, cy, COL.area); }
+    else if(f.kind==='line'){ const pts=f.layer.getLatLngs(); if(pts.length<2) return; const [mx,my]=pt(pts[Math.floor(pts.length/2)]); label(fmtLen(f.value), mx, my-12*sx, COL.line); }
+    else { const [x,y]=pt(f.layer.getLatLng()); label(f.label, x, y-16*sx, COL.point); }
+  });
+  ctx.restore();
 }
 async function exportPNG(){
   if(!rasterLayer){ return; }

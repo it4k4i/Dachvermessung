@@ -28,14 +28,31 @@ Programmbibliotheken (Leaflet, georaster usw.) lädt**:
   Browser ausschließlich Dateien von deiner eigenen Domain – kein Drittanbieter-CDN, robuster
   und datensparsamer. Details unten unter „Ohne CDN betreiben".
 
-In beiden Fällen wird die **GeoTIFF-Datei nie hochgeladen** – sie bleibt im Browser.
+In allen Fällen wird die **GeoTIFF-Datei nie hochgeladen** – sie bleibt im Browser.
+
+### Optionale dritte Variante: mit Auto-Sicherung (IndexedDB)
+
+Zusätzlich gibt es `index_idb.html` (ohne CDN) bzw. `cdn_index_idb.html` (mit CDN). Diese
+Varianten **sichern die Messungen automatisch im Browser des Geräts** (IndexedDB), sodass ein
+versehentliches Neuladen der Seite die Arbeit nicht verliert: Wird dasselbe Orthofoto erneut
+geladen, bietet ein Hinweisbalken „Frühere Messungen gefunden – Wiederherstellen/Verwerfen" an.
+
+- Gespeichert werden **nur die Messungen** (Polygone, Linien, Punkte, Namen) – **nie das
+  GeoTIFF**. Es findet weiterhin **kein Upload** statt; die Daten liegen ausschließlich lokal
+  im Browser des Kunden.
+- Bewusster Unterschied zur Standard-Variante: Hier bleibt also etwas auf dem Gerät zurück
+  (lokal). Es gibt eine Checkbox „Messungen auf diesem Gerät sichern" (an/aus) und einen Knopf
+  „Gespeicherte Messungen löschen". Im privaten Browsermodus ist die Funktion automatisch aus.
+- Gespeichert wird pro Orthofoto-Dateiname; verschiedene Dächer überschreiben sich nicht.
 
 ## Datenschutz
 
 - Das GeoTIFF wird **lokal im Browser** (Arbeitsspeicher) gelesen und gerendert
   (`geotiff.js` / `georaster`). Es wird **nicht** an einen Server gesendet.
-- Es werden **kein IndexedDB, localStorage oder sessionStorage** verwendet. Tab schließen
-  oder neu laden = alle Messungen weg, nichts bleibt auf dem Gerät zurück.
+- In den Standard-Varianten werden **kein IndexedDB, localStorage oder sessionStorage**
+  verwendet: Tab schließen oder neu laden = alle Messungen weg, nichts bleibt auf dem Gerät
+  zurück. (Die optionalen `*_idb.html`-Varianten sichern die Messungen bewusst lokal per
+  IndexedDB – weiterhin ohne Upload; siehe „Optionale dritte Variante".)
 - Persistiert wird nur der normale HTTP-Cache des Browsers für die öffentlichen
   Programmbibliotheken und – falls eingeblendet – die Kartenkacheln der Hintergrundkarte.
   Die Hintergrundkarte ist **standardmäßig ausgeschaltet** (die Dachvermessung erfolgt auf dem
@@ -219,7 +236,9 @@ also sauber referenziert sein (idealerweise mit GCPs/RTK).
 ## Sicherheit & Code-Qualität
 
 - **Kein Server, kein Upload:** reine Client-Anwendung; Datei und Messungen verlassen das Gerät
-  nicht. Keine Nutzung von `localStorage`/`sessionStorage`/`IndexedDB`.
+  nicht. Die Standard-Varianten nutzen kein `localStorage`/`sessionStorage`/`IndexedDB`; die
+  optionalen `*_idb.html`-Varianten speichern ausschließlich die Messungen lokal per IndexedDB
+  (kein Upload, abschalt- und löschbar).
 - **XSS-Härtung:** alle Bezeichnungen werden HTML-escaped, bevor sie in die Oberfläche oder in
   Karten-Popups geschrieben werden; beim Laden von Projektdateien werden Typ (nur
   `area`/`line`/`point`) und Länge der Bezeichnungen validiert. Eigene Namen für Messungen

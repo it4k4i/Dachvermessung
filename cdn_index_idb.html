@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="referrer" content="strict-origin-when-cross-origin" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Dachvermessung – GeoTIFF im Browser messen</title>
+<script>
+  // Start-Theme aus System-Einstellung (kein Speichern; nur diese Sitzung)
+  (function(){
+    var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    document.documentElement.setAttribute('data-theme', prefersLight ? 'light' : 'dark');
+  })();
+</script>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+
+<!-- Schriften -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --ink:#0e1116;
+    --panel:#161b22;
+    --panel-2:#1d242e;
+    --line:#2a323d;
+    --text:#eef1f4;
+    --muted:#97a1ad;
+    --accent:#ff7a18;      /* Flächen / Primär */
+    --accent-soft:rgba(255,122,24,.16);
+    --blue:#3fb6f5;        /* Strecken */
+    --green:#37d39b;       /* Punkte / OK */
+    --danger:#ff5a5f;
+    --radius:12px;
+    --shadow:0 10px 30px rgba(0,0,0,.35);
+    /* themeabhängige Flächen */
+    --header-bg:linear-gradient(180deg,#1a212b,#12171e);
+    --drop-bg:radial-gradient(120% 120% at 50% 0%,#1a222d 0%,#0e1116 70%);
+    --loading-bg:rgba(14,17,22,.92);
+    --ctrl-bg:rgba(14,17,22,.9);
+    --map-bg:#e9edf0;
+  }
+  :root[data-theme="light"]{
+    --ink:#eef2f6;
+    --panel:#ffffff;
+    --panel-2:#f3f6f9;
+    --line:#dde3ea;
+    --text:#16202b;
+    --muted:#5d6975;
+    --accent:#e0640d;
+    --accent-soft:rgba(224,100,13,.12);
+    --shadow:0 10px 30px rgba(25,45,70,.12);
+    --header-bg:linear-gradient(180deg,#ffffff,#f1f4f8);
+    --drop-bg:radial-gradient(120% 120% at 50% 0%,#ffffff 0%,#eaeff4 70%);
+    --loading-bg:rgba(244,247,250,.93);
+    --ctrl-bg:rgba(255,255,255,.93);
+    --map-bg:#e9edf0;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--ink);color:var(--text);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased;
+    transition:background-color .25s ease,color .25s ease}
+  button{font-family:inherit;cursor:pointer}
+  .help-btn{display:flex;align-items:center;gap:6px;height:36px;padding:0 13px;border-radius:9px;
+    border:1px solid var(--line);background:var(--accent);color:#0e1116;font-weight:700;font-size:13px}
+  .help-btn:hover{filter:brightness(1.06)}
+  .help-btn svg{width:17px;height:17px}
+  .theme-toggle{width:36px;height:36px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--text);display:grid;place-items:center;flex:0 0 auto;
+    transition:.15s}
+  .theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
+  .theme-toggle svg{width:18px;height:18px}
+  .theme-toggle .ico-sun{display:none}
+  :root[data-theme="light"] .theme-toggle .ico-sun{display:block}
+  :root[data-theme="light"] .theme-toggle .ico-moon{display:none}
+
+  .app{display:grid;grid-template-columns:340px 1fr;grid-template-rows:60px 1fr;
+    grid-template-areas:"head head" "side map";height:100%}
+
+  /* Header */
+  header{grid-area:head;display:flex;align-items:center;gap:14px;padding:0 18px;
+    background:var(--header-bg);border-bottom:1px solid var(--line);z-index:1200}
+  .logo{display:flex;align-items:center;gap:11px;min-width:0}
+  .mark{width:30px;height:30px;border-radius:8px;flex:0 0 auto;
+    background:linear-gradient(135deg,var(--accent),#ffb061);
+    display:grid;place-items:center;box-shadow:0 4px 14px rgba(255,122,24,.4)}
+  .mark svg{width:18px;height:18px;display:block}
+  .title{font-family:"Archivo",sans-serif;font-weight:800;letter-spacing:-.02em;font-size:17px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .title small{display:block;font-family:"IBM Plex Sans";font-weight:500;font-size:11px;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .head-actions{margin-left:auto;display:flex;gap:9px;align-items:center}
+  .privacy{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
+    background:rgba(55,211,155,.1);border:1px solid rgba(55,211,155,.25);
+    padding:6px 11px;border-radius:999px}
+  .privacy b{color:var(--green);font-weight:600}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+
+  /* Sidebar */
+  aside{grid-area:side;background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;overflow:hidden}
+  .sec{padding:16px 16px 14px;border-bottom:1px solid var(--line)}
+  .sec h2{font-family:"Archivo";font-weight:700;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+
+  .tools{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .tool{display:flex;flex-direction:column;align-items:center;gap:7px;padding:13px 8px;
+    background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius);
+    color:var(--text);font-size:12.5px;font-weight:500;transition:.15s;text-align:center;line-height:1.2}
+  .tool:hover{border-color:#3a4452;transform:translateY(-1px)}
+  .tool svg{width:22px;height:22px}
+  .tool.t-area svg{color:var(--accent)}
+  .tool.t-line svg{color:var(--blue)}
+  .tool.t-point svg{color:var(--green)}
+  .tool.active{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+  .tool.full{grid-column:1/-1;flex-direction:row;justify-content:center;gap:9px;padding:11px}
+  .tool.danger{color:var(--danger)}
+  .tool.danger svg{color:var(--danger)}
+  .tool[disabled]{opacity:.4;cursor:not-allowed;transform:none}
+
+  .hint{font-size:12px;color:var(--muted);margin-top:11px;line-height:1.5}
+  .hint kbd{background:var(--panel-2);border:1px solid var(--line);border-radius:5px;
+    padding:1px 6px;font-family:inherit;font-size:11px}
+
+  /* Ergebnisliste */
+  .results{flex:1;overflow-y:auto;padding:14px 14px 18px}
+  .results h2{font-family:"Archivo";font-weight:700;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);margin:0 0 12px;display:flex;justify-content:space-between}
+  .empty{color:var(--muted);font-size:13px;line-height:1.6;text-align:center;padding:26px 8px}
+  .empty svg{width:34px;height:34px;opacity:.4;margin-bottom:10px}
+
+  .item{display:flex;align-items:center;gap:9px;padding:10px 11px;border-radius:10px;
+    background:var(--panel-2);border:1px solid var(--line);margin-bottom:8px}
+  .item.hidden-item{opacity:.5}
+  .item .vis{width:16px;height:16px;flex:0 0 auto;accent-color:var(--accent);cursor:pointer;margin:0}
+  .swatch{width:9px;height:34px;border-radius:4px;flex:0 0 auto}
+  .item .meta{min-width:0;flex:1;cursor:pointer}
+  .item .lbl{font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .val{font-weight:600;font-size:14px;font-variant-numeric:tabular-nums}
+  .item.hidden-item .val{text-decoration:line-through}
+  .item .rowbtn{background:none;border:none;color:var(--muted);width:28px;height:28px;border-radius:7px;
+    display:grid;place-items:center;flex:0 0 auto}
+  .item .rowbtn svg{width:15px;height:15px}
+  .item .rowbtn.edit:hover{background:var(--accent-soft);color:var(--accent)}
+  .item .rowbtn.del:hover{background:rgba(255,90,95,.15);color:var(--danger)}
+
+  .total{margin-top:6px;padding:13px 14px;border-radius:10px;
+    background:linear-gradient(135deg,var(--accent-soft),rgba(255,122,24,.04));
+    border:1px solid rgba(255,122,24,.3)}
+  .total .lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+  .total .val{font-family:"Archivo";font-weight:800;font-size:23px;font-variant-numeric:tabular-nums;margin-top:2px}
+
+  .export{display:flex;gap:8px;margin-top:12px}
+  .actions{margin-top:12px;display:flex;flex-direction:column;gap:12px}
+  .act-group{}
+  .act-title{font-family:"Archivo";font-weight:700;font-size:10px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted);margin:0 0 7px}
+  .act-row{display:flex;gap:8px}
+  .act-row.four{flex-wrap:wrap}
+  .act-row.four button{flex:1 1 calc(50% - 4px)}
+  .act-row button{flex:1;padding:10px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--text);font-size:12.5px;font-weight:500;
+    display:flex;align-items:center;justify-content:center;gap:7px;transition:.15s}
+  .act-row button:hover:not([disabled]){border-color:var(--accent);color:var(--accent)}
+  .act-row button[disabled]{opacity:.4;cursor:not-allowed}
+  .act-row svg{width:15px;height:15px}
+
+  /* Hilfe-Overlay */
+  .modal{position:fixed;inset:0;z-index:4000;display:none;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.55);padding:20px}
+  .modal.show{display:flex}
+  .modal-card{position:relative;width:min(560px,100%);max-height:88vh;overflow-y:auto;
+    background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 26px 22px;
+    box-shadow:var(--shadow)}
+  .modal-x{position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--muted);display:grid;place-items:center}
+  .modal-x:hover{color:var(--text);border-color:#3a4452}
+  .modal-x svg{width:18px;height:18px}
+  .modal-title{font-family:"Archivo";font-weight:800;font-size:21px;letter-spacing:-.02em;margin:0 0 16px;color:var(--text)}
+  .help-steps{margin:0;padding-left:22px;color:var(--text)}
+  .help-steps>li{margin-bottom:12px;line-height:1.55;font-size:14px}
+  .help-steps ul{margin:7px 0 0;padding-left:18px}
+  .help-steps ul li{margin-bottom:5px;font-size:13.5px;color:var(--muted)}
+  .help-steps ul li b{color:var(--text)}
+  .help-tip{margin-top:16px;padding:12px 13px;border-radius:10px;background:var(--accent-soft);
+    border:1px solid rgba(255,122,24,.3);font-size:13px;line-height:1.5;color:var(--text)}
+  .modal-ok{margin-top:18px;width:100%;padding:13px;border-radius:11px;border:none;background:var(--accent);
+    color:#0e1116;font-weight:700;font-size:15px}
+  .modal-ok:hover{filter:brightness(1.06)}
+
+  /* Toast */
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);
+    background:var(--panel);color:var(--text);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:10px;padding:13px 18px;font-size:13px;max-width:440px;box-shadow:var(--shadow);
+    opacity:0;pointer-events:none;transition:.25s;z-index:3000}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* Map */
+  main{grid-area:map;position:relative;background:var(--map-bg)}
+  #map{position:absolute;inset:0;z-index:1}
+  .leaflet-container{background:#dfe5ea;font-family:"IBM Plex Sans",sans-serif}
+
+  /* Mess-Labels auf der Karte */
+  .measure-label{background:rgba(14,17,22,.86);color:#fff;border:none;border-radius:7px;
+    padding:3px 8px;font-weight:600;font-size:12px;box-shadow:0 3px 10px rgba(0,0,0,.4);
+    font-variant-numeric:tabular-nums}
+  .measure-label.area{border-left:3px solid var(--accent)}
+  .measure-label.line{border-left:3px solid var(--blue)}
+  .measure-label.point{border-left:3px solid var(--green)}
+  .measure-label:before{display:none}
+
+  /* Opazitäts-Regler */
+  .map-ctrl{position:absolute;left:14px;bottom:24px;z-index:1000;background:var(--ctrl-bg);
+    backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:11px;padding:12px 14px;
+    box-shadow:var(--shadow);width:210px;display:none}
+  .map-ctrl.show{display:block}
+  .map-ctrl label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+    display:flex;justify-content:space-between;margin-bottom:8px}
+  .map-ctrl input[type=range]{width:100%;accent-color:var(--accent)}
+  .map-ctrl .row{display:flex;align-items:center;gap:8px;margin-top:11px;font-size:12.5px;color:var(--text)}
+  .map-ctrl .row input{accent-color:var(--accent)}
+  .base-select{display:none}
+
+  /* Schritt-Nummern */
+  .step-num{display:inline-grid;place-items:center;width:19px;height:19px;border-radius:50%;
+    background:var(--accent);color:#0e1116;font-family:"Archivo";font-weight:800;font-size:11px;margin-right:7px}
+  .step-num.small{width:17px;height:17px;font-size:10px;margin-right:6px;vertical-align:middle}
+  aside h2{display:flex;align-items:center}
+
+  /* Anleitungs-Box (aktiver Hinweis) */
+  .guide{display:flex;gap:9px;align-items:flex-start;margin-top:13px;padding:11px 12px;border-radius:10px;
+    background:var(--accent-soft);border:1px solid rgba(255,122,24,.32);font-size:13px;line-height:1.5;color:var(--text)}
+  .guide-ico{width:18px;height:18px;flex:0 0 auto;color:var(--accent);margin-top:1px}
+
+  /* Primäre Aktionsbuttons */
+  .act-row.two-big{margin-bottom:8px}
+  .act-row.two-big button.primary{flex-direction:column;gap:6px;padding:14px 8px;font-size:13px;font-weight:600;
+    background:var(--accent);color:#0e1116;border-color:transparent}
+  .act-row.two-big button.primary svg{width:20px;height:20px}
+  .act-row.two-big button.primary:hover:not([disabled]){filter:brightness(1.06);color:#0e1116}
+  .act-row.two-big button.primary[disabled]{opacity:.4;filter:none}
+
+  details.adv{margin-top:10px}
+  details.adv summary{font-size:12px;color:var(--muted);cursor:pointer;padding:4px 0;list-style:none}
+  details.adv summary::-webkit-details-marker{display:none}
+  details.adv summary:before{content:"▸ ";color:var(--muted)}
+  details.adv[open] summary:before{content:"▾ "}
+  details.adv .act-row{margin-top:8px}
+
+  .reload-btn{position:absolute;right:14px;top:14px;z-index:1000;display:none;
+    align-items:center;gap:8px;background:var(--ctrl-bg);backdrop-filter:blur(8px);
+    color:var(--text);border:1px solid var(--line);border-radius:9px;padding:9px 13px;font-size:12.5px;
+    font-weight:500;box-shadow:var(--shadow)}
+  .reload-btn.show{display:flex}
+  .reload-btn:hover{border-color:#3a4452}
+  .reload-btn svg{width:15px;height:15px}
+
+  /* Drop-Overlay */
+  .drop{position:absolute;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;
+    background:var(--drop-bg);padding:24px}
+  .drop.hidden{display:none}
+  .drop.dragover .dz{border-color:var(--accent);background:var(--accent-soft);transform:scale(1.01)}
+  .dz{width:min(560px,100%);border:2px dashed var(--line);border-radius:20px;padding:46px 40px;
+    text-align:center;transition:.18s;background:rgba(255,255,255,.015)}
+  .dz .icon{width:62px;height:62px;border-radius:16px;margin:0 auto 22px;
+    background:linear-gradient(135deg,var(--accent),#ffb061);display:grid;place-items:center;
+    box-shadow:0 10px 30px rgba(255,122,24,.45)}
+  .dz .icon svg{width:32px;height:32px;color:#0e1116}
+  .dz h1{font-family:"Archivo";font-weight:800;font-size:25px;letter-spacing:-.02em;margin:0 0 9px}
+  .dz p{color:var(--muted);font-size:14px;line-height:1.6;margin:0 auto 24px;max-width:420px}
+  .dz .cta{display:inline-flex;align-items:center;gap:9px;background:var(--accent);color:#0e1116;
+    border:none;border-radius:11px;padding:13px 24px;font-weight:700;font-size:15px;
+    box-shadow:0 8px 24px rgba(255,122,24,.35)}
+  .dz .cta:hover{filter:brightness(1.06)}
+  .dz .cta svg{width:19px;height:19px}
+  .dz .sub{margin-top:18px;font-size:12px;color:var(--muted)}
+  .dz .sub b{color:var(--green)}
+  .steps3{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;
+    margin-top:26px;padding-top:22px;border-top:1px solid var(--line)}
+  .s3{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--text)}
+  .s3n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;
+    background:var(--accent);color:#0e1116;font-family:"Archivo";font-weight:800;font-size:12px}
+  .s3arrow{color:var(--muted);font-size:16px}
+  .dz-adv{margin-top:18px;text-align:center}
+  .dz-adv summary{font-size:12px;color:var(--muted);cursor:pointer;list-style:none}
+  .dz-adv summary::-webkit-details-marker{display:none}
+  .dz-adv summary:before{content:"▸ "}
+  .dz-adv[open] summary:before{content:"▾ "}
+  .url-row{display:flex;gap:8px;margin-top:20px;max-width:440px;margin-inline:auto}
+  .url-row input{flex:1;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;
+    color:var(--text);padding:10px 12px;font-family:inherit;font-size:13px}
+  .url-row button{background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    border-radius:9px;padding:0 16px;font-weight:500;font-size:13px}
+  .url-row button:hover{border-color:#3a4452}
+
+  /* Lade-Status */
+  .loading{position:absolute;inset:0;z-index:1150;display:none;align-items:center;justify-content:center;
+    flex-direction:column;gap:18px;background:var(--loading-bg);color:var(--text)}
+  .loading.show{display:flex}
+  .spinner{width:46px;height:46px;border:4px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:spin .9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loading p{font-size:14px;color:var(--muted)}
+  .err{color:var(--danger);max-width:420px;text-align:center;font-size:14px;line-height:1.5;padding:0 20px}
+
+  @media (max-width:860px){
+    .app{grid-template-columns:1fr;grid-template-rows:56px 40vh 1fr;
+      grid-template-areas:"head" "map" "side"}
+    aside{border-right:none;border-top:1px solid var(--line)}
+    main{grid-area:map}
+    .privacy span{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="logo">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#0e1116" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 21l4-9 5 3 4-8 5 5"/><path d="M3 21h18"/>
+        </svg>
+      </div>
+      <div class="title">Dachvermessung<small>Flächen direkt im Bild messen</small></div>
+    </div>
+    <div class="head-actions">
+      <button class="help-btn" id="helpBtn" title="Anleitung anzeigen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.5 1.5c0 1.5-2 2-2 3"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/></svg>
+        Anleitung
+      </button>
+      <button class="theme-toggle" id="themeToggle" title="Hell/Dunkel umschalten" aria-label="Hell/Dunkel umschalten">
+        <svg class="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg class="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+      <div class="privacy"><span class="dot"></span><span>100&nbsp;% lokal –</span><b>kein Upload</b></div>
+    </div>
+  </header>
+
+  <aside>
+    <div class="sec">
+      <h2><span class="step-num">1</span> Werkzeug wählen</h2>
+      <div class="tools">
+        <button class="tool t-area" id="btnArea" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6-4 6 4 6-3v13l-6 3-6-4-6 4z"/><path d="M9 3v17M15 7v13"/></svg>
+          Fläche messen
+        </button>
+        <button class="tool t-line" id="btnLine" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19L19 5"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/></svg>
+          Länge messen
+        </button>
+        <button class="tool t-point" id="btnPoint" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-7.5-7-12a7 7 0 0 1 14 0c0 4.5-7 12-7 12z"/><circle cx="12" cy="9" r="2.4"/></svg>
+          Punkt setzen
+        </button>
+        <button class="tool" id="btnUndo" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
+          Letztes rückgängig
+        </button>
+        <button class="tool full danger" id="btnClear" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+          Alles löschen
+        </button>
+      </div>
+      <div class="guide" id="guide">
+        <svg class="guide-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16v.5"/></svg>
+        <span id="guideText">Laden Sie zuerst Ihr Luftbild – ziehen Sie die Datei einfach ins Fenster.</span>
+      </div>
+    </div>
+
+    <div class="results">
+      <h2><span class="step-num">2</span> Ergebnisse</h2>
+      <div id="list"></div>
+      <div class="empty" id="emptyState">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6-4 6 4 6-3v13l-6 3-6-4-6 4z"/></svg>
+        Noch nichts gemessen.<br>Wählen Sie oben ein Werkzeug und klicken Sie auf das Dach.
+      </div>
+      <div class="total" id="total" style="display:none">
+        <div class="lbl">Gesamte Dachfläche</div>
+        <div class="val" id="totalVal">0 m²</div>
+      </div>
+      <div class="actions" id="actions">
+        <div class="act-group">
+          <div class="act-title"><span class="step-num small">3</span> Speichern &amp; weitergeben</div>
+          <div class="act-row two-big">
+            <button id="btnPdf" class="primary" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+              Als PDF speichern
+            </button>
+            <button id="btnPng" class="primary" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+              Als Bild speichern
+            </button>
+          </div>
+          <div class="act-row">
+            <button id="btnSave" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+              Arbeit sichern
+            </button>
+            <button id="btnLoad">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              Sicherung öffnen
+            </button>
+          </div>
+          <details class="adv">
+            <summary>Für Fachleute (GIS-Daten)</summary>
+            <div class="act-row">
+              <button id="btnGeojson" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                GeoJSON
+              </button>
+              <button id="btnCsv" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                CSV
+              </button>
+            </div>
+          </details>
+        <input type="file" id="projectInput" accept=".json,application/json" hidden>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <div id="map"></div>
+    <div id="restoreBar" style="display:none;position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:1200;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:11px;padding:11px 14px;box-shadow:var(--shadow);max-width:90%;display:none;align-items:center;gap:12px">
+      <span id="restoreText" style="font-size:13px"></span>
+      <button id="restoreYes" style="background:var(--accent);color:#0e1116;border:none;border-radius:8px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer">Wiederherstellen</button>
+      <button id="restoreNo" style="background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font-size:12.5px;cursor:pointer">Verwerfen</button>
+    </div>
+
+    <div class="map-ctrl" id="mapCtrl">
+      <label>Luftbild durchscheinend <span id="opVal">100%</span></label>
+      <input type="range" id="opacity" min="0" max="100" value="100">
+      <div class="row"><input type="checkbox" id="baseToggle"><label style="margin:0;text-transform:none;letter-spacing:0;color:var(--text);font-size:12.5px">Straßenkarte im Hintergrund</label></div>
+      <div class="row" style="margin-top:6px"><input type="checkbox" id="autosaveToggle" checked><label style="margin:0;text-transform:none;letter-spacing:0;color:var(--text);font-size:12.5px">Messungen auf diesem Gerät sichern</label></div>
+      <button id="clearStorage" style="margin-top:8px;width:100%;background:var(--panel-2);color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:6px;font-size:11.5px;cursor:pointer">Gespeicherte Messungen löschen</button>
+    </div>
+
+    <button class="reload-btn" id="reloadBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/></svg>
+      Anderes Luftbild laden
+    </button>
+
+    <div class="drop" id="drop">
+      <div class="dz" id="dz">
+        <div class="icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 9l5-5 5 5M12 4v12"/></svg>
+        </div>
+        <h1>Luftbild hierher ziehen</h1>
+        <p>Ziehen Sie die Luftbild-Datei (Endung <b>.tif</b>) in dieses Fenster – oder klicken Sie auf den Knopf. Die Datei bleibt komplett auf Ihrem Gerät.</p>
+        <button class="cta" id="pickBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          Datei auswählen
+        </button>
+        <input type="file" id="fileInput" accept=".tif,.tiff,image/tiff" hidden>
+
+        <div class="steps3">
+          <div class="s3"><span class="s3n">1</span>Datei laden</div>
+          <div class="s3arrow">→</div>
+          <div class="s3"><span class="s3n">2</span>Auf dem Dach messen</div>
+          <div class="s3arrow">→</div>
+          <div class="s3"><span class="s3n">3</span>Als PDF/Bild speichern</div>
+        </div>
+
+        <details class="dz-adv">
+          <summary>Datei per Internet-Adresse laden (für Fortgeschrittene)</summary>
+          <div class="url-row">
+            <input type="text" id="urlInput" placeholder="https://… direkte Adresse zur .tif-Datei">
+            <button id="urlBtn">Laden</button>
+          </div>
+        </details>
+        <div class="sub"><b>Nichts wird hochgeladen</b> – die Verarbeitung passiert nur in Ihrem Browser.</div>
+      </div>
+    </div>
+
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <p id="loadingText">GeoTIFF wird gelesen …</p>
+      <div class="err" id="errText" style="display:none"></div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal" id="helpModal">
+  <div class="modal-card">
+    <button class="modal-x" id="helpClose" aria-label="Schließen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+    <h2 class="modal-title">So messen Sie Ihr Dach</h2>
+    <ol class="help-steps">
+      <li><b>Luftbild laden.</b> Ziehen Sie Ihre <b>.tif</b>-Datei ins Fenster oder klicken Sie auf „Datei auswählen". Die Datei bleibt auf Ihrem Gerät.</li>
+      <li><b>Werkzeug wählen.</b> Links auf <b>Fläche messen</b>, <b>Länge messen</b> oder <b>Punkt setzen</b> klicken.</li>
+      <li><b>Auf dem Dach klicken.</b> Setzen Sie nacheinander die Eckpunkte.
+        <ul>
+          <li><b>Fläche:</b> Klicken Sie zum Abschluss wieder auf den <b>ersten Punkt</b>. Die Quadratmeter erscheinen sofort.</li>
+          <li><b>Länge:</b> Mit einem <b>Doppelklick</b> beenden.</li>
+        </ul>
+      </li>
+      <li><b>Benennen &amp; aus-/einblenden.</b> In der Ergebnisliste können Sie jede Messung über das <b>Stift-Symbol</b> umbenennen (z. B. „Dach Süd") und über das <b>Häkchen</b> vorübergehend ausblenden – die Gesamtfläche zählt dann nur die sichtbaren Messungen.</li>
+      <li><b>Korrigieren.</b> „Letztes rückgängig" entfernt die letzte Messung, „Alles löschen" leert die Karte.</li>
+      <li><b>Speichern.</b> <b>Als PDF</b> oder <b>Als Bild</b> für den Versand. Mit <b>Arbeit sichern</b> können Sie später weitermachen (dann dieselbe .tif erneut laden).</li>
+    </ol>
+    <div class="help-tip">Tipp: Mit dem Mausrad zoomen, mit gedrückter Maustaste verschieben. Über dem Regler links unten können Sie eine Straßenkarte einblenden.</div>
+    <button class="modal-ok" id="helpOk">Verstanden – los geht's</button>
+  </div>
+</div>
+
+<!-- Bibliotheken -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script src="https://unpkg.com/georaster"></script>
+<script src="https://unpkg.com/georaster-layer-for-leaflet/dist/georaster-layer-for-leaflet.min.js"></script>
+<script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://geographiclib.sourceforge.io/scripts/geographiclib-geodesic.min.js"></script>
+
+<script>
+(function(){
+// ---------- Sicherstellen, dass alle Bibliotheken geladen wurden ----------
+const _missing=[];
+if(typeof L==='undefined') _missing.push('Leaflet');
+if(typeof parseGeoraster==='undefined') _missing.push('georaster');
+if(typeof GeoRasterLayer==='undefined') _missing.push('georaster-layer-for-leaflet');
+if(_missing.length){
+  const l=document.getElementById('loading'); l.classList.add('show');
+  document.querySelector('.spinner').style.display='none';
+  document.getElementById('loadingText').style.display='none';
+  const e=document.getElementById('errText'); e.style.display='block';
+  e.innerHTML='Die Karten-Bibliotheken konnten nicht geladen werden ('+_missing.join(', ')+').<br><br>'+
+    'In der Vorschau im Chat ist das normal (externe Skripte werden blockiert). Auf GitHub&nbsp;Pages '+
+    'oder beim direkten Öffnen im Browser funktioniert es. Andernfalls bitte die Internetverbindung prüfen.';
+  return;
+}
+
+// ---------- Marker-Icons (sonst kaputte Standard-Pins bei CDN-Leaflet) ----------
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png'
+});
+
+// ---------- Deutsche Tooltips für Leaflet.Draw ----------
+const dl = L.drawLocal.draw.handlers;
+dl.polygon.tooltip.start = 'Klicken, um die Fläche zu beginnen';
+dl.polygon.tooltip.cont  = 'Klicken, um weitere Eckpunkte zu setzen';
+dl.polygon.tooltip.end   = 'Auf den ersten Punkt klicken, um die Fläche zu schließen';
+dl.polyline.tooltip.start = 'Klicken, um die Strecke zu beginnen';
+dl.polyline.tooltip.cont  = 'Klicken, um die Strecke fortzusetzen';
+dl.polyline.tooltip.end   = 'Letzten Punkt klicken oder Doppelklick zum Beenden';
+dl.marker.tooltip.start   = 'Auf die Karte klicken, um einen Punkt zu setzen';
+
+// ---------- Theme-Umschalter (nur diese Sitzung, kein Speichern) ----------
+document.getElementById('themeToggle').addEventListener('click', function(){
+  const cur = document.documentElement.getAttribute('data-theme')==='light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', cur==='light' ? 'dark' : 'light');
+});
+
+// ---------- Hilfe-Overlay ----------
+const helpModal = document.getElementById('helpModal');
+function openHelp(){ helpModal.classList.add('show'); }
+function closeHelp(){ helpModal.classList.remove('show'); }
+document.getElementById('helpBtn').addEventListener('click', openHelp);
+document.getElementById('helpClose').addEventListener('click', closeHelp);
+document.getElementById('helpOk').addEventListener('click', closeHelp);
+helpModal.addEventListener('click', e=>{ if(e.target===helpModal) closeHelp(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeHelp(); });
+
+// Anleitung-Texte je Werkzeug
+const GUIDE = {
+  none:  'Wählen Sie oben ein Werkzeug, um mit dem Messen zu beginnen.',
+  area:  'Klicken Sie nacheinander auf die Ecken der Dachfläche. Zum Abschließen wieder auf den ersten Punkt klicken – die m² erscheinen sofort.',
+  line:  'Klicken Sie auf Start- und weitere Punkte. Mit Doppelklick beenden Sie die Strecke.',
+  point: 'Klicken Sie auf die Stelle, die Sie markieren möchten.'
+};
+function setGuide(kind){
+  const el = document.getElementById('guideText');
+  if(el) el.textContent = GUIDE[kind||'none'];
+}
+
+// ---------- Karte ----------
+const map = L.map('map', {zoomControl:true, attributionControl:true}).setView([49.96, 8.83], 6);
+
+// Optionale Straßenkarte im Hintergrund (standardmäßig AUS; gemessen wird auf dem Luftbild).
+const basemaps = {
+  carto: L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    maxZoom:22, maxNativeZoom:20, subdomains:'abcd',
+    attribution:'&copy; OpenStreetMap &copy; CARTO', crossOrigin:true
+  })
+};
+let currentBasemapKey = 'carto';
+let baseLayer = basemaps.carto;
+function isBasemapOn(){ return map.hasLayer(basemaps.carto); }
+function applyBasemap(){
+  const on = document.getElementById('baseToggle').checked;
+  if(on){ baseLayer.addTo(map); baseLayer.bringToBack(); }
+  else if(map.hasLayer(baseLayer)){ map.removeLayer(baseLayer); }
+}
+
+const drawnItems = new L.FeatureGroup().addTo(map);
+let rasterLayer = null;
+
+// ---------- Hilfsfunktionen Formatierung ----------
+const nf  = (v,d=1)=>v.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
+const nf0 = v=>v.toLocaleString('de-DE',{maximumFractionDigits:0});
+function fmtArea(m2){
+  if(m2>=10000) return nf(m2/10000,2)+' ha';
+  return nf(m2,1)+' m²';
+}
+function fmtAreaFull(m2){
+  if(m2>=10000) return nf(m2/10000,2)+' ha · '+nf0(m2)+' m²';
+  return nf(m2,1)+' m²';
+}
+function fmtLen(m){
+  if(m>=1000) return nf(m/1000,2)+' km';
+  return nf(m,1)+' m';
+}
+function fmtCoord(ll){
+  return ll.lat.toFixed(6)+', '+ll.lng.toFixed(6);
+}
+
+// ---------- Mess-Verwaltung ----------
+let features = [];          // {id, kind, label, value, valueText, layer}
+let counters = {area:0, line:0, point:0};
+let uid = 0;
+let currentRasterName = null;
+const colors = {area:'var(--accent)', line:'var(--blue)', point:'var(--green)'};
+
+// ---------- Geodätische Messung (lokale Projektion, WGS84-Krümmungsradien) ----------
+// Genauer als die Kugelnäherung: < 0,0002 % Abweichung für dachgroße Flächen, breitengrad-
+// unabhängig. Leaflet liefert die Eckpunkte in echten WGS84-Koordinaten (lat/lng), die
+// Lagegenauigkeit selbst stammt aus der Georeferenzierung des GeoTIFF.
+const _A_WGS = 6378137.0, _F_WGS = 1/298.257223563, _E2_WGS = _F_WGS*(2-_F_WGS);
+function _radii(latDeg){
+  const phi = latDeg*Math.PI/180, s = Math.sin(phi), t = 1 - _E2_WGS*s*s;
+  return { M: _A_WGS*(1-_E2_WGS)/Math.pow(t,1.5), N: _A_WGS/Math.sqrt(t) };
+}
+// Projiziert lat/lng-Punkte in lokale Meter um den Schwerpunkt-Breitengrad.
+function _toLocalMeters(latlngs){
+  if(!latlngs.length) return [];
+  let lat0 = 0; latlngs.forEach(p=>lat0 += p.lat); lat0 /= latlngs.length;
+  const { M, N } = _radii(lat0), cphi = Math.cos(lat0*Math.PI/180);
+  return latlngs.map(p=>({ x:(p.lng*Math.PI/180)*N*cphi, y:(p.lat*Math.PI/180)*M }));
+}
+function _ringLatLngs(layer){
+  let r = layer.getLatLngs();
+  while(Array.isArray(r) && r.length && Array.isArray(r[0])) r = r[0];   // erste Ring-Ebene
+  return r || [];
+}
+function polygonAreaM2(layer){
+  const ring = _ringLatLngs(layer);
+  if(ring.length < 3) return 0;
+  const xy = _toLocalMeters(ring);
+  let s = 0;
+  for(let i=0;i<xy.length;i++){ const aP=xy[i], bP=xy[(i+1)%xy.length]; s += aP.x*bP.y - bP.x*aP.y; }
+  return Math.abs(s)/2;
+}
+function _polylineLengthM(latlngs){
+  if(latlngs.length < 2) return 0;
+  const xy = _toLocalMeters(latlngs);
+  let d = 0;
+  for(let i=0;i<xy.length-1;i++){ const dx=xy[i+1].x-xy[i].x, dy=xy[i+1].y-xy[i].y; d += Math.hypot(dx,dy); }
+  return d;
+}
+function polygonPerimeterM(layer){
+  const ring = _ringLatLngs(layer);
+  if(ring.length < 2) return 0;
+  return _polylineLengthM(ring.concat([ring[0]]));
+}
+function lineLengthM(layer){
+  return _polylineLengthM(layer.getLatLngs());
+}
+
+// HTML-Escaping gegen XSS (z. B. aus geladenen Projektdateien mit manipulierten Bezeichnungen)
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function makeFeature(layer, kind, labelOverride){
+  drawnItems.addLayer(layer);
+  const id = 'f'+(++uid);
+  let label;
+  if(labelOverride){ label = String(labelOverride).slice(0,80); }
+  else { counters[kind]++; label = (kind==='area'?'Fläche ':kind==='line'?'Strecke ':'Punkt ')+counters[kind]; }
+  let value=0, valueText='';
+
+  if(kind==='area'){
+    value = polygonAreaM2(layer);
+    const per = polygonPerimeterM(layer);
+    valueText = fmtAreaFull(value);
+    layer.setStyle({color:'#ff7a18', weight:2.5, fillColor:'#ff7a18', fillOpacity:.22});
+    layer.bindTooltip(fmtArea(value), {permanent:true, direction:'center', className:'measure-label area'});
+    layer.bindPopup('<b>'+escapeHtml(label)+'</b><br>Fläche: '+fmtAreaFull(value)+'<br>Umfang: '+fmtLen(per));
+  } else if(kind==='line'){
+    value = lineLengthM(layer);
+    valueText = fmtLen(value);
+    layer.setStyle({color:'#3fb6f5', weight:3, dashArray:'6 5'});
+    layer.bindTooltip(fmtLen(value), {permanent:true, direction:'top', className:'measure-label line'});
+    layer.bindPopup('<b>'+escapeHtml(label)+'</b><br>Länge: '+fmtLen(value));
+  } else {
+    const ll = layer.getLatLng();
+    valueText = fmtCoord(ll);
+    layer.bindTooltip(escapeHtml(label), {permanent:true, direction:'top', className:'measure-label point'});
+    layer.bindPopup('<b>'+escapeHtml(label)+'</b><br>'+escapeHtml(fmtCoord(ll)));
+  }
+
+  features.push({id, kind, label, value, valueText, layer, visible:true});
+  renderList();
+}
+function addFeature(layer, kind){ makeFeature(layer, kind); }
+
+function removeFeature(id){
+  const i = features.findIndex(f=>f.id===id);
+  if(i<0) return;
+  drawnItems.removeLayer(features[i].layer);
+  features.splice(i,1);
+  renderList();
+}
+
+// Popup/Tooltip eines Features nach Umbenennung neu aufbauen (immer escaped)
+function refreshFeaturePopup(f){
+  const L_ = f.label;
+  if(f.kind==='area'){
+    const per = polygonPerimeterM(f.layer);
+    f.layer.setPopupContent('<b>'+escapeHtml(L_)+'</b><br>Fläche: '+fmtAreaFull(f.value)+'<br>Umfang: '+fmtLen(per));
+  } else if(f.kind==='line'){
+    f.layer.setPopupContent('<b>'+escapeHtml(L_)+'</b><br>Länge: '+fmtLen(f.value));
+  } else {
+    const ll = f.layer.getLatLng();
+    f.layer.setPopupContent('<b>'+escapeHtml(L_)+'</b><br>'+escapeHtml(fmtCoord(ll)));
+    if(f.layer.getTooltip()) f.layer.setTooltipContent(escapeHtml(L_));  // Punkt zeigt Namen als Label
+  }
+}
+function renameFeature(id){
+  const f = features.find(x=>x.id===id); if(!f) return;
+  const input = window.prompt('Neue Bezeichnung:', f.label);
+  if(input===null) return;                       // Abbrechen
+  const clean = String(input).trim().slice(0,80);
+  f.label = clean || f.label;                    // leer -> alten Namen behalten
+  refreshFeaturePopup(f);
+  renderList();
+}
+function toggleFeatureVisible(id){
+  const f = features.find(x=>x.id===id); if(!f) return;
+  f.visible = !f.visible;
+  if(f.visible){ if(!drawnItems.hasLayer(f.layer)) drawnItems.addLayer(f.layer); }
+  else { if(drawnItems.hasLayer(f.layer)) drawnItems.removeLayer(f.layer); }
+  renderList();
+}
+
+function renderList(){
+  const list = document.getElementById('list');
+  list.innerHTML='';
+  features.forEach(f=>{
+    const row = document.createElement('div');
+    row.className='item'+(f.visible?'':' hidden-item');
+
+    // Sichtbarkeits-Checkbox
+    const cb = document.createElement('input');
+    cb.type='checkbox'; cb.className='vis'; cb.checked=f.visible;
+    cb.title = f.visible ? 'Ausblenden' : 'Einblenden';
+    cb.setAttribute('aria-label','Messung ein-/ausblenden');
+    cb.onclick = (e)=>{ e.stopPropagation(); toggleFeatureVisible(f.id); };
+
+    const swatch = document.createElement('span');
+    swatch.className='swatch'; swatch.style.background=colors[f.kind];
+
+    const meta = document.createElement('div');
+    meta.className='meta';
+    const lbl = document.createElement('div'); lbl.className='lbl'; lbl.textContent=f.label; // textContent => sicher
+    const val = document.createElement('div'); val.className='val'; val.textContent=f.valueText;
+    meta.appendChild(lbl); meta.appendChild(val);
+    meta.onclick = ()=>{
+      if(!f.visible) return;
+      if(f.layer.openPopup) f.layer.openPopup();
+      if(f.layer.getBounds) map.fitBounds(f.layer.getBounds(),{maxZoom:21,padding:[40,40]});
+      else if(f.layer.getLatLng) map.setView(f.layer.getLatLng(), Math.max(map.getZoom(),19));
+    };
+
+    const edit = document.createElement('button');
+    edit.className='rowbtn edit'; edit.title='Umbenennen'; edit.setAttribute('aria-label','Umbenennen');
+    edit.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+    edit.onclick = (e)=>{ e.stopPropagation(); renameFeature(f.id); };
+
+    const del = document.createElement('button');
+    del.className='rowbtn del'; del.title='Löschen'; del.setAttribute('aria-label','Löschen');
+    del.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+    del.onclick = (e)=>{ e.stopPropagation(); removeFeature(f.id); };
+
+    row.appendChild(cb); row.appendChild(swatch); row.appendChild(meta); row.appendChild(edit); row.appendChild(del);
+    list.appendChild(row);
+  });
+
+  const totalArea = totalAreaM2();
+  const hasAreas = features.some(f=>f.kind==='area' && f.visible);
+  document.getElementById('total').style.display = hasAreas?'block':'none';
+  document.getElementById('totalVal').textContent = fmtAreaFull(totalArea);
+  document.getElementById('emptyState').style.display = features.length?'none':'block';
+  document.getElementById('btnClear').disabled = !features.length;
+  document.getElementById('btnUndo').disabled = !features.length;
+  document.getElementById('btnSave').disabled = !features.length;
+  document.getElementById('btnGeojson').disabled = !features.length;
+  document.getElementById('btnCsv').disabled = !features.length;
+}
+function totalAreaM2(){ return features.filter(f=>f.kind==='area' && f.visible).reduce((s,f)=>s+f.value,0); }
+
+// ---------- Zeichen-Werkzeuge ----------
+let activeHandler = null;
+const toolBtns = {area:document.getElementById('btnArea'), line:document.getElementById('btnLine'), point:document.getElementById('btnPoint')};
+
+function setActive(kind){
+  Object.values(toolBtns).forEach(b=>b.classList.remove('active'));
+  if(kind) toolBtns[kind].classList.add('active');
+  setGuide(kind || (rasterLayer ? 'none' : null));
+}
+function startDraw(kind){
+  if(activeHandler){ activeHandler.disable(); activeHandler=null; }
+  setActive(kind);
+  if(kind==='area'){
+    activeHandler = new L.Draw.Polygon(map, {allowIntersection:false, showArea:false,
+      shapeOptions:{color:'#ff7a18', weight:2.5}});
+  } else if(kind==='line'){
+    activeHandler = new L.Draw.Polyline(map, {shapeOptions:{color:'#3fb6f5', weight:3}});
+  } else {
+    activeHandler = new L.Draw.Marker(map, {});
+  }
+  activeHandler.enable();
+}
+
+document.getElementById('btnArea').onclick  = ()=>startDraw('area');
+document.getElementById('btnLine').onclick  = ()=>startDraw('line');
+document.getElementById('btnPoint').onclick = ()=>startDraw('point');
+
+map.on(L.Draw.Event.CREATED, e=>{
+  const kind = e.layerType==='polygon'?'area':e.layerType==='polyline'?'line':'point';
+  addFeature(e.layer, kind);
+  setActive(null);
+  activeHandler=null;
+});
+map.on(L.Draw.Event.DRAWSTOP, ()=>{ setActive(null); });
+
+document.getElementById('btnUndo').onclick = ()=>{ if(features.length) removeFeature(features[features.length-1].id); };
+document.getElementById('btnClear').onclick = ()=>{
+  if(!features.length) return;
+  if(confirm('Wirklich alle Messungen löschen?')){ drawnItems.clearLayers(); features=[]; counters={area:0,line:0,point:0}; renderList(); }
+};
+
+// ---------- Export ----------
+function download(name, content, type){
+  const blob = new Blob([content], {type});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+document.getElementById('btnGeojson').onclick = ()=>{
+  const fc = {type:'FeatureCollection', features: features.map(f=>{
+    const gj = f.layer.toGeoJSON();
+    gj.properties = {label:f.label, typ:f.kind, sichtbar:f.visible!==false,
+      flaeche_m2: f.kind==='area'? Math.round(f.value*10)/10 : undefined,
+      laenge_m:   f.kind==='line'? Math.round(f.value*10)/10 : undefined};
+    return gj;
+  })};
+  download('dachvermessung.geojson', JSON.stringify(fc,null,2), 'application/geo+json');
+};
+// Schutz vor CSV-Injection (Excel/Sheets führen führende = + - @ als Formel aus)
+function csvCell(s){
+  let v = String(s==null?'':s);
+  if(/^[=+\-@\t\r]/.test(v)) v = "'"+v;
+  return '"'+v.replace(/"/g,'""')+'"';
+}
+document.getElementById('btnCsv').onclick = ()=>{
+  let csv = 'Bezeichnung;Typ;Wert;Einheit;Sichtbar\n';
+  features.forEach(f=>{
+    const sv = f.visible!==false ? 'ja' : 'nein';
+    if(f.kind==='area') csv += csvCell(f.label)+';Fläche;'+csvCell(nf(f.value,1))+';m²;'+sv+'\n';
+    else if(f.kind==='line') csv += csvCell(f.label)+';Strecke;'+csvCell(nf(f.value,1))+';m;'+sv+'\n';
+    else csv += csvCell(f.label)+';Punkt;'+csvCell(f.valueText)+';Koordinaten;'+sv+'\n';
+  });
+  const tot = totalAreaM2();   // nur sichtbare Flächen, passend zur Anzeige
+  csv += 'GESAMT (sichtbar);Dachfläche;'+csvCell(nf(tot,1))+';m²;\n';
+  download('dachvermessung.csv', '\uFEFF'+csv, 'text/csv');
+};
+
+// ---------- Toast & kleine Helfer ----------
+let toastTimer=null;
+function showToast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'), 6000);
+}
+function downloadBlob(name, blob){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function baseName(n){ return (n||'').replace(/\.[^.]+$/,''); }
+function projectTitle(){ return currentRasterName ? baseName(currentRasterName) : 'Dachvermessung'; }
+function countSummary(){
+  const a=features.filter(f=>f.kind==='area').length, l=features.filter(f=>f.kind==='line').length, p=features.filter(f=>f.kind==='point').length;
+  const parts=[]; if(a)parts.push(a+(a===1?' Fläche':' Flächen')); if(l)parts.push(l+(l===1?' Strecke':' Strecken')); if(p)parts.push(p+(p===1?' Punkt':' Punkte'));
+  return parts.join(', ')||'keine Messungen';
+}
+function subtitleLine(){
+  const d=new Date().toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const tot=totalAreaM2();
+  return d+' · '+countSummary()+(tot>0?' · Dachfläche gesamt: '+fmtAreaFull(tot):'');
+}
+
+// ---------- Projekt speichern / laden ----------
+function saveProject(){
+  const data = {
+    format:'dachvermessung-projekt', version:1,
+    created:new Date().toISOString(),
+    raster:{name: currentRasterName||null},
+    view:{center:[map.getCenter().lat, map.getCenter().lng], zoom:map.getZoom()},
+    ui:{opacity:Number(opSlider.value), basemap: isBasemapOn()},
+    counters:{area:counters.area, line:counters.line, point:counters.point},
+    features: features.map(f=>{ const gj=f.layer.toGeoJSON(); gj.properties={kind:f.kind, label:f.label, visible:f.visible!==false}; return gj; })
+  };
+  downloadBlob('dachvermessung-projekt.json', new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+  showToast('Projekt gespeichert. Das Orthofoto ist nicht enthalten – beim erneuten Öffnen dieselbe GeoTIFF laden.');
+}
+function layerFromGeoJSON(gj, kind){
+  const g=gj.geometry; if(!g) return null;
+  const k = kind || (g.type==='Polygon'?'area':g.type==='LineString'?'line':'point');
+  if(k==='area'){
+    let ring=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]);
+    if(ring.length>1 && ring[0][0]===ring[ring.length-1][0] && ring[0][1]===ring[ring.length-1][1]) ring.pop();
+    return ring.length>=3 ? L.polygon(ring) : null;
+  } else if(k==='line'){
+    return L.polyline(g.coordinates.map(c=>[c[1],c[0]]));
+  } else {
+    return L.marker([g.coordinates[1], g.coordinates[0]]);
+  }
+}
+async function loadProject(file){
+  let data;
+  try{ data = JSON.parse(await file.text()); }
+  catch(e){ showToast('Datei ist kein gültiges Projekt (JSON konnte nicht gelesen werden).'); return; }
+  if(!data || data.format!=='dachvermessung-projekt'){ showToast('Das ist keine Dachvermessungs-Projektdatei.'); return; }
+  if(features.length && !confirm('Aktuelle Messungen durch das geladene Projekt ersetzen?')) return;
+
+  drawnItems.clearLayers(); features=[]; counters={area:0,line:0,point:0}; uid=0;
+  (data.features||[]).forEach(gj=>{
+    let kind = gj && gj.properties && gj.properties.kind;
+    if(kind!=='area' && kind!=='line' && kind!=='point') kind = null;   // nur erlaubte Typen
+    const label = gj && gj.properties ? gj.properties.label : null;
+    const layer = layerFromGeoJSON(gj, kind);
+    if(layer){
+      makeFeature(layer, (kind || (layer instanceof L.Marker?'point':layer instanceof L.Polygon?'area':'line')), label);
+      if(gj.properties && gj.properties.visible===false){ toggleFeatureVisible(features[features.length-1].id); }
+    }
+  });
+  if(data.counters){ counters={area:data.counters.area||0, line:data.counters.line||0, point:data.counters.point||0}; }
+
+  if(data.ui){
+    if(typeof data.ui.opacity==='number'){ opSlider.value=data.ui.opacity; opSlider.oninput(); }
+    if(typeof data.ui.basemap==='boolean'){ document.getElementById('baseToggle').checked=data.ui.basemap; applyBasemap(); }
+  }
+  renderList();
+
+  if(drawnItems.getLayers().length){ try{ map.fitBounds(drawnItems.getBounds(),{padding:[40,40],maxZoom:21}); }catch(_){} }
+  else if(data.view && data.view.center){ map.setView(data.view.center, data.view.zoom||16); }
+
+  if(!rasterLayer && data.raster && data.raster.name){
+    showToast('Projekt geladen. Lade das zugehörige Orthofoto „'+data.raster.name+'", um den Hintergrund zu sehen.');
+  } else {
+    showToast('Projekt geladen: '+countSummary()+'.');
+  }
+}
+
+// ---------- Bild / PDF Export ----------
+function exportError(e){
+  console.error(e);
+  alert('Export fehlgeschlagen: '+((e&&e.message)||e)+'\n\nFalls die Hintergrundkarte aktiv ist, bitte deaktivieren und erneut versuchen.');
+}
+async function captureMapCanvas(){
+  if(typeof html2canvas==='undefined') throw new Error('html2canvas wurde nicht geladen');
+  // Aktive Hintergrundkarte für den Export entfernen (Kachelserver liefern teils kein CORS;
+  // das würde den Canvas-Export "vergiften"). Das Orthofoto + Einzeichnungen kommen sauber durch.
+  const activeBase = isBasemapOn() ? basemaps.carto : null;
+  if(activeBase) map.removeLayer(activeBase);
+  const cc = document.querySelector('.leaflet-control-container');
+  const prev = cc ? cc.style.display : '';
+  if(cc) cc.style.display='none';
+  await new Promise(r=>setTimeout(r, 300));
+  try{
+    return await html2canvas(document.getElementById('map'), {
+      useCORS:true, allowTaint:false, backgroundColor:'#ffffff', scale:2, logging:false
+    });
+  } finally {
+    if(cc) cc.style.display=prev;
+    if(activeBase){ activeBase.addTo(map); activeBase.bringToBack(); }
+  }
+}
+async function exportPNG(){
+  if(!rasterLayer){ return; }
+  showLoading('Bild wird erzeugt …');
+  try{
+    const mapCanvas = await captureMapCanvas();
+    const s = mapCanvas.width / Math.max(1, document.getElementById('map').clientWidth);
+    const headH = Math.round(66*s);
+    const out = document.createElement('canvas');
+    out.width = mapCanvas.width; out.height = mapCanvas.height + headH;
+    const ctx = out.getContext('2d');
+    ctx.fillStyle='#0e1116'; ctx.fillRect(0,0,out.width,headH);
+    ctx.fillStyle='#ff7a18'; ctx.fillRect(0,headH-Math.round(4*s),out.width,Math.round(4*s));
+    ctx.textBaseline='middle';
+    ctx.fillStyle='#ffffff'; ctx.font='700 '+Math.round(21*s)+'px "IBM Plex Sans", Arial, sans-serif';
+    ctx.fillText(projectTitle(), Math.round(20*s), Math.round(headH*0.40));
+    ctx.fillStyle='#9aa3af'; ctx.font='400 '+Math.round(13*s)+'px "IBM Plex Sans", Arial, sans-serif';
+    ctx.fillText(subtitleLine(), Math.round(20*s), Math.round(headH*0.74));
+    ctx.drawImage(mapCanvas, 0, headH);
+    out.toBlob(b=>{ if(b) downloadBlob(projectTitle()+'.png', b); else throw new Error('PNG konnte nicht erzeugt werden'); }, 'image/png');
+  }catch(e){ exportError(e); }
+  finally{ hideLoading(); }
+}
+async function exportPDF(){
+  if(!rasterLayer){ return; }
+  if(!window.jspdf || !window.jspdf.jsPDF){ alert('jsPDF wurde nicht geladen.'); return; }
+  showLoading('PDF wird erzeugt …');
+  try{
+    const mapCanvas = await captureMapCanvas();
+    const { jsPDF } = window.jspdf;
+    const landscape = mapCanvas.width >= mapCanvas.height;
+    const pdf = new jsPDF({orientation: landscape?'landscape':'portrait', unit:'mm', format:'a4'});
+    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+    const m = 12;
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(16); pdf.setTextColor(20,20,20);
+    pdf.text(projectTitle(), m, m+3);
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(9); pdf.setTextColor(110,110,110);
+    pdf.text(subtitleLine(), m, m+9);
+    const img = mapCanvas.toDataURL('image/png');
+    const top = m+13, availW = pw-m*2, availH = ph-top-m;
+    const r = Math.min(availW/mapCanvas.width, availH/mapCanvas.height);
+    const w = mapCanvas.width*r, h = mapCanvas.height*r;
+    pdf.addImage(img, 'PNG', (pw-w)/2, top, w, h);
+
+    if(features.length){
+      pdf.addPage();
+      pdf.setFont('helvetica','bold'); pdf.setFontSize(14); pdf.setTextColor(20,20,20);
+      pdf.text('Messungen', m, m+4);
+      pdf.setFont('helvetica','normal'); pdf.setFontSize(10); pdf.setTextColor(45,45,45);
+      let y=m+13;
+      features.forEach(f=>{
+        if(y>ph-m-8){ pdf.addPage(); y=m+8; }
+        const name = (f.visible===false ? '(ausgeblendet) ' : '') + f.label;
+        pdf.text(String(name)+':', m, y);
+        pdf.text(String(f.valueText), m+55, y);
+        y+=6.5;
+      });
+      const tot=totalAreaM2();
+      if(tot>0){ y+=2; pdf.setFont('helvetica','bold'); pdf.setTextColor(224,100,13);
+        pdf.text('Gesamte Dachfläche (sichtbar): '+fmtAreaFull(tot), m, y); }
+    }
+    pdf.save(projectTitle()+'.pdf');
+  }catch(e){ exportError(e); }
+  finally{ hideLoading(); }
+}
+
+// ---------- Buttons verdrahten ----------
+document.getElementById('btnSave').onclick = saveProject;
+const projectInput = document.getElementById('projectInput');
+document.getElementById('btnLoad').onclick = ()=>projectInput.click();
+projectInput.onchange = e=>{ const f=e.target.files[0]; if(f) loadProject(f); e.target.value=''; };
+document.getElementById('btnPng').onclick = exportPNG;
+document.getElementById('btnPdf').onclick = exportPDF;
+
+// ---------- Karten-Steuerung ----------
+const opSlider = document.getElementById('opacity');
+opSlider.oninput = ()=>{
+  const v = opSlider.value/100;
+  document.getElementById('opVal').textContent = opSlider.value+'%';
+  if(rasterLayer) rasterLayer.setOpacity(v);
+};
+document.getElementById('baseToggle').onchange = ()=>{ applyBasemap(); };
+
+// ---------- GeoTIFF laden ----------
+const drop = document.getElementById('drop');
+const loading = document.getElementById('loading');
+const fileInput = document.getElementById('fileInput');
+
+function showLoading(text){ loading.classList.add('show'); document.getElementById('loadingText').textContent=text||'GeoTIFF wird gelesen …'; document.getElementById('errText').style.display='none'; }
+function hideLoading(){ loading.classList.remove('show'); }
+function showError(msg){
+  loading.classList.add('show');
+  document.querySelector('.spinner').style.display='none';
+  document.getElementById('loadingText').style.display='none';
+  const e=document.getElementById('errText'); e.style.display='block';
+  e.innerHTML = msg + '<br><br><button class="cta" style="margin-top:4px" onclick="location.reload()">Neu starten</button>';
+}
+
+document.getElementById('pickBtn').onclick = ()=>fileInput.click();
+document.getElementById('reloadBtn').onclick = ()=>fileInput.click();
+fileInput.onchange = e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); };
+
+document.getElementById('urlBtn').onclick = ()=>{
+  const url = document.getElementById('urlInput').value.trim();
+  if(!url) return;
+  showLoading('GeoTIFF wird geladen …');
+  try{ currentRasterName = decodeURIComponent(url.split('/').pop().split('?')[0]) || 'orthofoto.tif'; }catch(_){ currentRasterName='orthofoto.tif'; }
+  fetch(url).then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.arrayBuffer(); })
+    .then(renderRaster)
+    .catch(err=>showError('Konnte die URL nicht laden ('+err.message+').<br>Hinweis: Der Server muss CORS erlauben. Am sichersten ist es, die Datei lokal auszuwählen.'));
+};
+
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev, e=>{e.preventDefault(); drop.classList.add('dragover');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev, e=>{e.preventDefault(); drop.classList.remove('dragover');}));
+drop.addEventListener('drop', e=>{ const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
+// auch Drag auf die Karte (wenn schon eine Datei geladen ist)
+document.getElementById('map').addEventListener('dragover', e=>e.preventDefault());
+document.getElementById('map').addEventListener('drop', e=>{ e.preventDefault(); const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
+
+async function handleFile(file){
+  if(!/\.tiff?$/i.test(file.name) && file.type!=='image/tiff'){
+    showError('Bitte eine GeoTIFF-Datei (.tif oder .tiff) auswählen.<br>Diese Datei: <b>'+file.name+'</b>');
+    return;
+  }
+  showLoading('GeoTIFF wird gelesen … ('+ (file.size/1048576).toFixed(0) +' MB)');
+  currentRasterName = file.name;
+  try{
+    const buf = await file.arrayBuffer();
+    await renderRaster(buf);
+  }catch(err){
+    showError('Datei konnte nicht gelesen werden.<br>'+(err.message||err));
+  }
+}
+
+// ---------- Kontrast-Stretch (für 16-Bit / Float-Daten) ----------
+function percentile(sorted, p){
+  if(!sorted.length) return 0;
+  const i = Math.min(sorted.length-1, Math.max(0, Math.round((p/100)*(sorted.length-1))));
+  return sorted[i];
+}
+function computeStretch(gr){
+  const n = gr.numberOfRasters || 1;
+  const los = new Array(n).fill(0), his = new Array(n).fill(255);
+  let needs = false;
+  const vals = gr.values;
+  for(let b=0;b<n;b++){
+    let lo=0, hi=255;
+    if(vals && vals[b]){
+      const grid = vals[b], rows = grid.length, rstep = Math.max(1, Math.floor(rows/250));
+      const s = [];
+      for(let y=0;y<rows;y+=rstep){
+        const row = grid[y]; if(!row) continue;
+        const cstep = Math.max(1, Math.floor(row.length/250));
+        for(let x=0;x<row.length;x+=cstep){
+          const v = row[x];
+          if(v==null || Number.isNaN(v)) continue;
+          if(gr.noDataValue!=null && v===gr.noDataValue) continue;
+          if(v<=0) continue;                 // Nullrand für den Stretch ignorieren
+          s.push(v);
+        }
+      }
+      if(s.length){ s.sort((a,b)=>a-b); lo = percentile(s,2); hi = percentile(s,98); }
+    } else if(gr.maxs && gr.maxs[b]!=null){
+      lo = (gr.mins && gr.mins[b]!=null) ? gr.mins[b] : 0; hi = gr.maxs[b];
+    }
+    if(hi > 255) needs = true;
+    los[b]=lo; his[b]=hi;
+  }
+  if(!needs){ for(let b=0;b<n;b++){ los[b]=0; his[b]=255; } }   // 8-Bit unverändert lassen
+  return {los, his, needs};
+}
+
+async function renderRaster(arrayBuffer){
+  try{
+    const georaster = await parseGeoraster(arrayBuffer);
+    const noData = georaster.noDataValue;
+    const ST = computeStretch(georaster);
+    const sc = (v, b) => {
+      const lo = ST.los[b], d = (ST.his[b]-lo) || 1;
+      let o = Math.round((v-lo)/d*255);
+      return o<0?0:o>255?255:o;
+    };
+
+    if(rasterLayer){ map.removeLayer(rasterLayer); rasterLayer=null; }
+
+    rasterLayer = new GeoRasterLayer({
+      georaster,
+      resolution: 256,
+      opacity: opSlider.value/100,
+      pixelValuesToColorFn: values=>{
+        if(!values || values.length===0) return null;
+        let r,g,b,a;
+        if(values.length>=3){ r=values[0]; g=values[1]; b=values[2]; a=values.length>=4?values[3]:255; }
+        else { const v=values[0]; r=g=b=v; a=values.length>=2?values[1]:255; }
+        if([r,g,b].some(x=>x==null||Number.isNaN(x))) return null;
+        if(a===0) return null;                                   // Alpha = transparent
+        if(noData!=null && r===noData && g===noData && b===noData) return null;
+        if(r===0 && g===0 && b===0) return null;                 // schwarzer Nodata-Rand -> transparent
+        const R = sc(r, 0), G = sc(g, values.length>=3?1:0), B = sc(b, values.length>=3?2:0);
+        return 'rgba('+R+','+G+','+B+','+(a>255?1:a/255)+')';
+      }
+    });
+    rasterLayer.addTo(map);
+    rasterLayer.bringToFront ? rasterLayer.bringToFront() : null;
+    drawnItems.bringToFront();
+    if(ST.needs) showToast('16-Bit-Orthofoto erkannt – Kontrast für die Anzeige automatisch angepasst.');
+
+    const b = rasterLayer.getBounds();
+    map.fitBounds(b, {padding:[20,20]});
+
+    // UI freischalten
+    drop.classList.add('hidden');
+    hideLoading();
+    document.querySelector('.spinner').style.display='block';
+    document.getElementById('loadingText').style.display='block';
+    document.getElementById('mapCtrl').classList.add('show');
+    document.getElementById('reloadBtn').classList.add('show');
+    document.getElementById('btnArea').disabled=false;
+    document.getElementById('btnLine').disabled=false;
+    document.getElementById('btnPoint').disabled=false;
+    document.getElementById('btnPng').disabled=false;
+    document.getElementById('btnPdf').disabled=false;
+    setGuide('none');
+  }catch(err){
+    showError('Das ist keine gültige bzw. unterstützte GeoTIFF.<br><small>'+(err.message||err)+'</small>');
+  }
+}
+
+// ===================== IndexedDB-Autospeicherung =========================
+// Speichert NUR die Messungen (nie das GeoTIFF), lokal im Browser, pro Dateiname.
+// Schützt vor versehentlichem Neuladen. Abschaltbar + löschbar in der Kartensteuerung.
+const ASTORE = (function(){
+  const DB='dachvermessung', STORE='projekte'; let dbp=null;
+  function open(){
+    if(dbp) return dbp;
+    dbp = new Promise((res,rej)=>{
+      let req;
+      try{ req = indexedDB.open(DB, 1); }catch(e){ rej(e); return; }
+      req.onupgradeneeded = ()=>{ const db=req.result; if(!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE,{keyPath:'key'}); };
+      req.onsuccess = ()=>res(req.result);
+      req.onerror   = ()=>rej(req.error);
+    });
+    return dbp;
+  }
+  async function put(key, value){
+    const db=await open();
+    return new Promise((res,rej)=>{ const tx=db.transaction(STORE,'readwrite'); tx.objectStore(STORE).put({key, value, ts:Date.now()}); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); });
+  }
+  async function get(key){
+    const db=await open();
+    return new Promise((res,rej)=>{ const tx=db.transaction(STORE,'readonly'); const r=tx.objectStore(STORE).get(key); r.onsuccess=()=>res(r.result?r.result.value:null); r.onerror=()=>rej(r.error); });
+  }
+  async function del(key){
+    const db=await open();
+    return new Promise((res,rej)=>{ const tx=db.transaction(STORE,'readwrite'); tx.objectStore(STORE).delete(key); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); });
+  }
+  return { put, get, del, available: (typeof indexedDB!=='undefined' && indexedDB) };
+})();
+
+const autosaveToggle = document.getElementById('autosaveToggle');
+function autosaveEnabled(){ return ASTORE.available && autosaveToggle && autosaveToggle.checked; }
+function storageKey(){ return 'projekt:' + (currentRasterName || '_ohne_datei_'); }
+
+// Serialisierung identisch zur Projektdatei (ohne das Orthofoto).
+function serializeProject(){
+  return {
+    format:'dachvermessung-projekt', version:1, created:new Date().toISOString(),
+    raster:{name: currentRasterName||null},
+    view:{center:[map.getCenter().lat, map.getCenter().lng], zoom:map.getZoom()},
+    ui:{opacity:Number(opSlider.value), basemap: isBasemapOn()},
+    counters:{area:counters.area, line:counters.line, point:counters.point},
+    features: features.map(f=>{ const gj=f.layer.toGeoJSON(); gj.properties={kind:f.kind, label:f.label, visible:f.visible!==false}; return gj; })
+  };
+}
+// Daten aus einem gespeicherten/JSON-Projekt in die Karte laden (ohne Confirm-Dialoge).
+function applyProjectData(data, fit){
+  drawnItems.clearLayers(); features=[]; counters={area:0,line:0,point:0}; uid=0;
+  (data.features||[]).forEach(gj=>{
+    let kind = gj && gj.properties && gj.properties.kind;
+    if(kind!=='area' && kind!=='line' && kind!=='point') kind = null;
+    const label = gj && gj.properties ? gj.properties.label : null;
+    const layer = layerFromGeoJSON(gj, kind);
+    if(layer){
+      makeFeature(layer, (kind || (layer instanceof L.Marker?'point':layer instanceof L.Polygon?'area':'line')), label);
+      if(gj.properties && gj.properties.visible===false){ toggleFeatureVisible(features[features.length-1].id); }
+    }
+  });
+  if(data.counters){ counters={area:data.counters.area||0, line:data.counters.line||0, point:data.counters.point||0}; }
+  if(data.ui){
+    if(typeof data.ui.opacity==='number'){ opSlider.value=data.ui.opacity; opSlider.oninput(); }
+    if(typeof data.ui.basemap==='boolean'){ document.getElementById('baseToggle').checked=data.ui.basemap; applyBasemap(); }
+  }
+  renderList();
+  if(fit && drawnItems.getLayers().length){ try{ map.fitBounds(drawnItems.getBounds(),{padding:[40,40],maxZoom:21}); }catch(_){} }
+}
+
+// Debounced Autosave – an renderList angehängt (jede Änderung ruft renderList).
+let _saveTimer=null, _restoring=false;
+function scheduleAutosave(){
+  if(_restoring || !autosaveEnabled()) return;
+  clearTimeout(_saveTimer);
+  _saveTimer=setTimeout(()=>{
+    try{
+      if(!features.length){ ASTORE.del(storageKey()).catch(()=>{}); return; }
+      ASTORE.put(storageKey(), serializeProject()).catch(()=>{});
+    }catch(_){}
+  }, 600);
+}
+const _origRenderList = renderList;
+renderList = function(){ _origRenderList.apply(this, arguments); scheduleAutosave(); };
+
+// Restore-Banner nach dem Laden eines Orthofotos prüfen.
+const restoreBar  = document.getElementById('restoreBar');
+const restoreText = document.getElementById('restoreText');
+let _pendingRestore=null;
+function showRestoreBar(data){
+  _pendingRestore=data;
+  let n=0; try{ n=(data.features||[]).length; }catch(_){}
+  restoreText.textContent='Frühere Messungen auf diesem Gerät gefunden ('+n+'). Wiederherstellen?';
+  restoreBar.style.display='flex';
+}
+function hideRestoreBar(){ restoreBar.style.display='none'; _pendingRestore=null; }
+document.getElementById('restoreYes').onclick=()=>{
+  if(_pendingRestore){ _restoring=true; try{ applyProjectData(_pendingRestore, true); } finally { _restoring=false; } showToast('Frühere Messungen wiederhergestellt.'); }
+  hideRestoreBar();
+};
+document.getElementById('restoreNo').onclick=()=>{ const k=storageKey(); ASTORE.del(k).catch(()=>{}); hideRestoreBar(); showToast('Gespeicherte Messungen verworfen.'); };
+
+async function checkRestoreFor(){
+  if(!ASTORE.available) return;
+  try{
+    const data=await ASTORE.get(storageKey());
+    if(data && data.features && data.features.length){ showRestoreBar(data); }
+  }catch(_){}
+}
+// renderRaster umschließen: nach erfolgreichem Laden Restore prüfen.
+const _origRenderRaster = renderRaster;
+renderRaster = async function(){
+  const r = await _origRenderRaster.apply(this, arguments);
+  setTimeout(checkRestoreFor, 50);
+  return r;
+};
+
+// Bedienelemente
+document.getElementById('clearStorage').onclick=async ()=>{
+  try{ await ASTORE.del(storageKey()); showToast('Auf diesem Gerät gespeicherte Messungen gelöscht.'); }catch(_){}
+};
+autosaveToggle.onchange=()=>{
+  if(autosaveEnabled()){ scheduleAutosave(); showToast('Messungen werden auf diesem Gerät gesichert (nur lokal, kein Upload).'); }
+  else { ASTORE.del(storageKey()).catch(()=>{}); showToast('Automatische Sicherung aus. Bereits Gespeichertes für dieses Bild wurde entfernt.'); }
+};
+if(!ASTORE.available){
+  // IndexedDB nicht verfügbar (z. B. privater Modus): Option ausgrauen.
+  if(autosaveToggle){ autosaveToggle.checked=false; autosaveToggle.disabled=true; }
+  const cs=document.getElementById('clearStorage'); if(cs) cs.disabled=true;
+}
+// ===================== /IndexedDB-Autospeicherung ========================
+
+})();
+</script>
+</body>
+</html>
